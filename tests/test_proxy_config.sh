@@ -33,9 +33,14 @@ grep -q 'name: shared-proxy' "$tmp/compose.proxy.yml"
 grep -q 'traefik.docker.network: "shared-proxy"' "$tmp/compose.proxy.yml"
 grep -q 'fwstack-element' "$tmp/compose.proxy.yml"
 
+"$ROOT/scripts/generate-proxy-config.sh" "$tmp" matrix same-host false le shared-proxy http ""
+[[ ! -e "$tmp/compose.proxy.yml" ]]
+
 "$ROOT/scripts/generate-proxy-config.sh" "$tmp" keycloak,matrix remote true "" "" http ""
 grep -q 'url: "http://10.20.0.5:18008"' "$tmp/integrations/traefik/dynamic.yml"
 grep -q 'matrix.example.org' "$tmp/integrations/traefik/dynamic.yml"
 grep -Fq "\${VPN_BACKEND_IP}:18008:8008" "$tmp/compose.remote.yml"
 if grep -Eq 'postgres|redis|openwehr' "$tmp/integrations/traefik/dynamic.yml"; then exit 1; fi
+"$ROOT/scripts/generate-proxy-config.sh" "$tmp" matrix remote false "" "" http ""
+[[ ! -e "$tmp/compose.remote.yml" && ! -e "$tmp/integrations/traefik/dynamic.yml" ]]
 echo "Own, existing, and remote proxy configuration checks passed."

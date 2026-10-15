@@ -87,9 +87,14 @@ services:
     profiles: [openwehr]
     restart: unless-stopped
     environment:
+      APP_NAME: OpenWehr
       APP_ENV: production
       APP_DEBUG: "false"
+      ADMIN_EMAILS: ${OPENWEHR_ADMIN_EMAILS:-}
       APP_URL: https://${OPENWEHR_HOST:?Set OPENWEHR_HOST}
+      AUTORUN_ENABLED: "false"
+      APP_TIMEZONE: Europe/Berlin
+      APP_LOCALE: de
       DB_CONNECTION: pgsql
       DB_HOST: postgres
       DB_PORT: "5432"
@@ -100,6 +105,9 @@ services:
       LOG_CHANNEL: stderr
       CACHE_STORE: redis
       QUEUE_CONNECTION: redis
+      SESSION_DRIVER: database
+      SESSION_SECURE_COOKIE: "true"
+      MAGIC_LINK_TTL_MINUTES: "15"
       MAIL_MAILER: ${MAIL_MAILER:-smtp}
       MAIL_HOST: ${MAIL_HOST:-}
       MAIL_PORT: ${MAIL_PORT:-587}
@@ -112,8 +120,7 @@ services:
     secrets: [openwehr_db_password, openwehr_app_key, mail_smtp_password]
     volumes:
       - ./scripts/openwehr-entrypoint.sh:/stack/openwehr-entrypoint.sh:ro
-      - ${STACK_ROOT}/openwehr/storage:/var/www/html/storage
-      - ${STACK_ROOT}/openwehr/uploads:/var/www/html/public/uploads
+      - ${STACK_ROOT}/openwehr/storage/app:/var/www/html/storage/app
     depends_on:
       postgres:
         condition: service_healthy
@@ -139,6 +146,10 @@ services:
     environment:
       APP_ENV: production
       APP_DEBUG: "false"
+      ADMIN_EMAILS: ${OPENWEHR_ADMIN_EMAILS:-}
+      AUTORUN_ENABLED: "false"
+      APP_TIMEZONE: Europe/Berlin
+      APP_LOCALE: de
       DB_CONNECTION: pgsql
       DB_HOST: postgres
       DB_PORT: "5432"
@@ -149,6 +160,8 @@ services:
       LOG_CHANNEL: stderr
       CACHE_STORE: redis
       QUEUE_CONNECTION: redis
+      SESSION_DRIVER: database
+      MAGIC_LINK_TTL_MINUTES: "15"
       MAIL_MAILER: ${MAIL_MAILER:-smtp}
       MAIL_HOST: ${MAIL_HOST:-}
       MAIL_PORT: ${MAIL_PORT:-587}
@@ -159,10 +172,10 @@ services:
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Feuerwehr}
     entrypoint: ["/bin/sh", "/stack/openwehr-entrypoint.sh"]
     secrets: [openwehr_db_password, openwehr_app_key, mail_smtp_password]
-    command: ["php", "artisan", "queue:work", "--tries=3", "--timeout=90"]
+    command: ["php", "artisan", "queue:work", "--tries=3", "--sleep=3", "--timeout=90"]
     volumes:
       - ./scripts/openwehr-entrypoint.sh:/stack/openwehr-entrypoint.sh:ro
-      - ${STACK_ROOT}/openwehr/storage:/var/www/html/storage
+      - ${STACK_ROOT}/openwehr/storage/app:/var/www/html/storage/app
     depends_on:
       openwehr:
         condition: service_started

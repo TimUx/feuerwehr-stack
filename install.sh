@@ -37,7 +37,7 @@ VPN_BACKEND_IP, KEYCLOAK_HOST, OPENWEHR_HOST, MATRIX_HOST, ELEMENT_HOST,
 ONLYOFFICE_HOST, GRAV_HOST, KEYCLOAK_ADMIN_USER, OPENWEHR_SOURCE, MAIL_HOST,
 MAIL_PORT, MAIL_USERNAME, MAIL_ENCRYPTION, MAIL_FROM_ADDRESS, MAIL_FROM_NAME,
 KEYCLOAK_PORT, OPENWEHR_PORT, MATRIX_PORT, ELEMENT_PORT, ONLYOFFICE_PORT,
-GRAV_PORT.
+GRAV_PORT, OPENWEHR_ADMIN_EMAILS.
 EOF
 }
 
@@ -63,7 +63,7 @@ for key in INSTALL_PATH BASE_DOMAIN ACME_EMAIL PROXY_MODE ENABLED_APPS ENABLE_PR
   MATRIX_SERVER_NAME MATRIX_FEDERATION VPN_BACKEND_IP KEYCLOAK_HOST OPENWEHR_HOST MATRIX_HOST \
   ELEMENT_HOST ONLYOFFICE_HOST GRAV_HOST KEYCLOAK_ADMIN_USER OPENWEHR_SOURCE MAIL_HOST MAIL_PORT \
   MAIL_USERNAME MAIL_ENCRYPTION MAIL_FROM_ADDRESS MAIL_FROM_NAME KEYCLOAK_PORT OPENWEHR_PORT \
-  MATRIX_PORT ELEMENT_PORT ONLYOFFICE_PORT GRAV_PORT; do
+  MATRIX_PORT ELEMENT_PORT ONLYOFFICE_PORT GRAV_PORT OPENWEHR_ADMIN_EMAILS; do
   allowed["$key"]=1
 done
 
@@ -98,6 +98,13 @@ fi
 [[ "$INSTALL_PATH" == /* && "$INSTALL_PATH" != / ]] || fail "Installation path must be absolute and not /"
 INSTALL_PATH="$(realpath -m -- "$INSTALL_PATH")"
 [[ "$INSTALL_PATH" != / && "$INSTALL_PATH" != *$'\n'* ]] || fail "Invalid installation path"
+[[ "$INSTALL_PATH" =~ ^/[A-Za-z0-9/._\ -]+$ ]] ||
+  fail "Installation path may contain only letters, digits, slash, dot, underscore, hyphen, and spaces"
+[[ ! -e "$INSTALL_PATH" || -d "$INSTALL_PATH" ]] || fail "Installation path exists and is not a directory"
+[[ ! -L "$INSTALL_PATH/.env" ]] || fail "Refusing a symlinked stack .env"
+for name in secrets postgres keycloak openwehr matrix element onlyoffice grav traefik backups logs integrations scripts; do
+  [[ ! -L "$INSTALL_PATH/$name" ]] || fail "Refusing symlinked installation directory: $INSTALL_PATH/$name"
+done
 
 if [[ -f "$INSTALL_PATH/.env" ]]; then
   read_config "$INSTALL_PATH/.env"
@@ -113,6 +120,15 @@ prompt() {
   else
     values["$key"]=$default
   fi
+}
+require_value() {
+  local key=$1 prompt_text=$2 answer
+  [[ -n "${values[$key]}" ]] && return
+  if [[ -t 0 && "$DRY_RUN" == false ]]; then
+    read -r -p "$prompt_text: " answer
+    values["$key"]=$answer
+  fi
+  [[ -n "${values[$key]}" ]] || fail "$key is required for the selected installation mode"
 }
 
 prompt BASE_DOMAIN "Basisdomain" feuerwehr.example.de
@@ -136,12 +152,34 @@ prompt ONLYOFFICE_HOST "ONLYOFFICE-Subdomain" "docs.${values[BASE_DOMAIN]}"
 prompt GRAV_HOST "GRAV-Subdomain" "www.${values[BASE_DOMAIN]}"
 prompt KEYCLOAK_ADMIN_USER "Initialer Keycloak-Administrator" kcadmin
 prompt OPENWEHR_SOURCE "OpenWehr-Quellverzeichnis (nur wenn ausgewählt)" ""
+prompt OPENWEHR_ADMIN_EMAILS "Initiale OpenWehr-Administrator-E-Mail(s), kommagetrennt" ""
 prompt MAIL_HOST "SMTP-Server für OpenWehr (Magic-Link-Anmeldung)" ""
 prompt MAIL_PORT "SMTP-Port" 587
 prompt MAIL_USERNAME "SMTP-Benutzername" ""
 prompt MAIL_ENCRYPTION "SMTP-Verschlüsselung (tls/ssl/leer)" tls
 prompt MAIL_FROM_ADDRESS "Absenderadresse für OpenWehr" ""
 prompt MAIL_FROM_NAME "Absendername für OpenWehr" Feuerwehr
+
+if [[ "${values[PROXY_MODE]}" == same-host ]]; then
+  require_value TRAEFIK_NETWORK "Name des bereits vorhandenen Traefik-Docker-Netzwerks"
+  [[ "${values[ENABLE_PROXY_ROUTES]}" != true ]] ||
+    require_value TRAEFIK_CERT_RESOLVER "Zertifikatsresolver des vorhandenen Traefik"
+fi
+if [[ "${values[PROXY_MODE]}" == remote ]]; then
+  require_value VPN_BACKEND_IP "Private VPN-IPv4-Adresse dieses Backend-Hosts"
+fi
+if [[ "${values[PROXY_MODE]}" == own && "${values[ACME_CHALLENGE]}" == dns ]]; then
+  require_value ACME_DNS_PROVIDER "Traefik DNS-Providerkennung"
+  if [[ -z "$DNS_ENV_FILE" ]]; then
+    require_value ACME_DNS_ENV_FILE "Pfad zur Datei mit DNS-Provider-Variablen"
+    DNS_ENV_FILE=${values[ACME_DNS_ENV_FILE]}
+  fi
+fi
+if [[ -n "${values[ENABLED_APPS]}" && ",${values[ENABLED_APPS]}," == *,openwehr,* ]]; then
+  require_value MAIL_HOST "SMTP-Hostname für OpenWehr"
+  require_value MAIL_FROM_ADDRESS "Absenderadresse für OpenWehr"
+  require_value OPENWEHR_ADMIN_EMAILS "Initiale OpenWehr-Administrator-E-Mail(s), kommagetrennt"
+fi
 
 valid_domain() {
   [[ ${#1} -le 253 && "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$ ]]
@@ -156,6 +194,10 @@ done
 mail_from_name_re='^[A-Za-z0-9 _.-]{1,64}$'
 [[ "${values[MAIL_FROM_NAME]}" =~ $mail_from_name_re ]] || fail "Invalid MAIL_FROM_NAME"
 [[ "${values[MAIL_ENCRYPTION]}" =~ ^(tls|ssl|)$ ]] || fail "MAIL_ENCRYPTION must be tls, ssl, or empty"
+if [[ ! "${values[MAIL_PORT]}" =~ ^[0-9]+$ ]] ||
+    ((10#${values[MAIL_PORT]} < 1 || 10#${values[MAIL_PORT]} > 65535)); then
+  fail "Invalid MAIL_PORT"
+fi
 [[ "${values[PROXY_MODE]}" =~ ^(own|same-host|remote)$ ]] || fail "PROXY_MODE must be own, same-host, or remote"
 [[ "${values[ACME_CHALLENGE]}" =~ ^(http|dns)$ ]] || fail "ACME_CHALLENGE must be http or dns"
 [[ "${values[ENABLE_PROXY_ROUTES]}" =~ ^(true|false)$ ]] || fail "ENABLE_PROXY_ROUTES must be true or false"
@@ -190,8 +232,15 @@ done
 if [[ "${values[PROXY_MODE]}" == remote ]]; then
   [[ "${values[VPN_BACKEND_IP]}" =~ ^[0-9]+(\.[0-9]+){3}$ ]] || fail "Remote mode requires an IPv4 VPN_BACKEND_IP"
   IFS=. read -r -a octets <<< "${values[VPN_BACKEND_IP]}"
-  for octet in "${octets[@]}"; do ((10#$octet <= 255)) || fail "Invalid IPv4 address"; done
+  for octet in "${octets[@]}"; do
+    ((${#octet} <= 3 && 10#$octet <= 255)) || fail "Invalid IPv4 address"
+  done
   [[ ${#octets[@]} -eq 4 ]] || fail "Invalid IPv4 address"
+  a=$((10#${octets[0]}))
+  b=$((10#${octets[1]}))
+  [[ "$a" -eq 10 || ("$a" -eq 172 && "$b" -ge 16 && "$b" -le 31) ||
+     ("$a" -eq 192 && "$b" -eq 168) || ("$a" -eq 100 && "$b" -ge 64 && "$b" -le 127) ]] ||
+    fail "VPN_BACKEND_IP must be an RFC1918 or shared-address private IPv4 address"
 fi
 
 for key in KEYCLOAK_PORT OPENWEHR_PORT MATRIX_PORT ELEMENT_PORT ONLYOFFICE_PORT GRAV_PORT; do
@@ -236,6 +285,11 @@ if [[ -n "${enabled[openwehr]:-}" ]]; then
     fail "OpenWehr magic-link login requires MAIL_HOST and MAIL_FROM_ADDRESS"
   [[ "${values[MAIL_FROM_ADDRESS]}" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] ||
     fail "Invalid MAIL_FROM_ADDRESS"
+  IFS=',' read -r -a admin_emails <<< "${values[OPENWEHR_ADMIN_EMAILS]}"
+  for address in "${admin_emails[@]}"; do
+    [[ "$address" =~ ^[^[:space:]@,]+@[^[:space:]@,]+\.[^[:space:]@,]+$ ]] ||
+      fail "Invalid OpenWehr administrator email"
+  done
 fi
 [[ -z "$DNS_ENV_FILE" || -r "$DNS_ENV_FILE" ]] || fail "DNS provider file is not readable"
 if [[ "${values[PROXY_MODE]}" == own && "${values[ACME_CHALLENGE]}" == dns && -z "$DNS_ENV_FILE" &&
@@ -247,12 +301,20 @@ if [[ "${values[PROXY_MODE]}" == own ]]; then
   command -v ss >/dev/null || fail "ss is required to check ports 80 and 443"
   for port in 80 443; do
     ss -H -ltn "sport = :$port" | grep -q . && fail "TCP port $port is already in use"
+    if command -v docker >/dev/null && docker ps --format '{{.Ports}}' 2>/dev/null |
+        grep -Eq "(^|[, ])[^,]*:${port}->"; then
+      fail "A running Docker container already publishes TCP port $port"
+    fi
   done
 fi
-if [[ "${values[PROXY_MODE]}" == same-host && "$DRY_RUN" == false ]]; then
-  command -v docker >/dev/null || fail "Docker is required to inspect the proxy network"
-  docker network inspect "${values[TRAEFIK_NETWORK]}" >/dev/null 2>&1 ||
-    fail "Docker network does not exist: ${values[TRAEFIK_NETWORK]}"
+if [[ "${values[PROXY_MODE]}" == same-host ]]; then
+  if command -v docker >/dev/null && docker network inspect "${values[TRAEFIK_NETWORK]}" >/dev/null 2>&1; then
+    :
+  elif [[ "$DRY_RUN" == true ]]; then
+    printf 'WARN: cannot verify existing Docker network %s during dry-run\n' "${values[TRAEFIK_NETWORK]}" >&2
+  else
+    fail "Configured Docker network does not exist or cannot be inspected: ${values[TRAEFIK_NETWORK]}"
+  fi
 fi
 if [[ -d "$INSTALL_PATH" && -n "$(find "$INSTALL_PATH" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" &&
       ! -f "$INSTALL_PATH/.env" ]]; then
@@ -264,13 +326,33 @@ if [[ "$DRY_RUN" == false ]]; then
   [[ -r /etc/os-release ]] || fail "Cannot identify the operating system"
   # shellcheck disable=SC1091
   source /etc/os-release
-  case "${ID:-}" in debian|ubuntu|raspbian) ;; *) fail "Supported operating systems: Debian and Ubuntu";; esac
+  case "${ID:-}" in debian|ubuntu) ;; *) fail "Supported operating systems: Debian and Ubuntu";; esac
   command -v docker >/dev/null || fail "Docker Engine is not installed"
   docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 plugin is required"
+  docker info >/dev/null 2>&1 || fail "Docker Engine is not reachable"
   command -v openssl >/dev/null || fail "openssl is required to generate secrets"
-  mkdir -p "$(dirname -- "$INSTALL_PATH")"
-  available_kb=$(df -Pk "$(dirname -- "$INSTALL_PATH")" | awk 'NR==2 {print $4}')
-  (( available_kb >= 2097152 )) || fail "At least 2 GiB free disk space is required"
+  space_path=$(dirname -- "$INSTALL_PATH")
+  while [[ ! -d "$space_path" ]]; do space_path=$(dirname -- "$space_path"); done
+  available_kb=$(df -Pk "$space_path" | awk 'NR==2 {print $4}')
+  minimum_kb=5242880
+  [[ -z "${enabled[onlyoffice]:-}" ]] || minimum_kb=8388608
+  (( available_kb >= minimum_kb )) || fail "At least $((minimum_kb / 1048576)) GiB free disk space is required"
+fi
+if [[ "${values[ENABLE_PROXY_ROUTES]}" == true ]] && command -v getent >/dev/null; then
+  for app in "${apps[@]}"; do
+    case "$app" in
+      keycloak) host=${values[KEYCLOAK_HOST]} ;;
+      openwehr) host=${values[OPENWEHR_HOST]} ;;
+      matrix) host=${values[MATRIX_HOST]} ;;
+      onlyoffice) host=${values[ONLYOFFICE_HOST]} ;;
+      grav) host=${values[GRAV_HOST]} ;;
+    esac
+    getent ahosts "$host" >/dev/null || printf 'WARN: DNS currently does not resolve %s\n' "$host" >&2
+    if [[ "$app" == matrix ]]; then
+      getent ahosts "${values[ELEMENT_HOST]}" >/dev/null ||
+        printf 'WARN: DNS currently does not resolve %s\n' "${values[ELEMENT_HOST]}" >&2
+    fi
+  done
 fi
 
 profiles=data
@@ -279,6 +361,12 @@ for app in "${apps[@]}"; do profiles+=",${app}"; done
 values[STACK_ROOT]=$INSTALL_PATH
 values[COMPOSE_PROFILES]=$profiles
 values[ENABLED_APPS]=$(IFS=,; echo "${apps[*]}")
+start_services=yes
+if [[ "$DRY_RUN" == true ]]; then
+  start_services='not run (dry-run)'
+elif [[ "$NO_START" == true ]]; then
+  start_services=no
+fi
 
 cat <<EOF
 Installation summary
@@ -289,7 +377,7 @@ Installation summary
   Base domain:    ${values[BASE_DOMAIN]}
   TLS challenge:  ${values[ACME_CHALLENGE]}
   Matrix server:  ${values[MATRIX_SERVER_NAME]} (federation: ${values[MATRIX_FEDERATION]})
-  Start services: $([[ "$NO_START" == true ]] && echo no || echo yes)
+  Start services: $start_services
 EOF
 
 if [[ "$DRY_RUN" == true ]]; then
@@ -302,7 +390,15 @@ if [[ "$ASSUME_YES" != true ]]; then
 fi
 
 install -d -m 0750 "$INSTALL_PATH"
-install -d -m 0750 "$INSTALL_PATH"/{secrets,postgres/data,keycloak/providers,keycloak/themes,openwehr/source,openwehr/storage,openwehr/uploads,matrix/data,element,onlyoffice/logs,onlyoffice/data,onlyoffice/lib,grav/config,traefik/acme,backups,logs,integrations/traefik}
+install -d -m 0750 "$INSTALL_PATH"/{secrets,postgres/data,keycloak/providers,keycloak/themes,openwehr/source,openwehr/storage/app,matrix/data,element,onlyoffice/logs,onlyoffice/data,onlyoffice/lib,grav/config,traefik/acme,backups,logs,integrations/traefik}
+chmod 0750 "$INSTALL_PATH"
+chmod 0700 "$INSTALL_PATH/secrets" "$INSTALL_PATH/backups"
+for name in postgres postgres/data keycloak keycloak/providers keycloak/themes openwehr openwehr/source \
+  openwehr/storage openwehr/storage/app matrix matrix/data element onlyoffice onlyoffice/logs onlyoffice/data \
+  onlyoffice/lib grav grav/config traefik traefik/acme logs integrations integrations/traefik; do
+  [[ ! -L "$INSTALL_PATH/$name" ]] || fail "Refusing symlinked installation directory: $INSTALL_PATH/$name"
+  chmod 0750 "$INSTALL_PATH/$name"
+done
 install -d -m 0750 "$INSTALL_PATH/scripts"
 for file in compose.yml scripts/postgres-init.sh scripts/keycloak-entrypoint.sh scripts/openwehr-entrypoint.sh \
   scripts/onlyoffice-entrypoint.sh scripts/generate-proxy-config.sh scripts/configure-synapse.py; do
@@ -311,21 +407,28 @@ done
 chmod 0750 "$INSTALL_PATH"/scripts/*.sh
 for name in postgres_superuser_password keycloak_db_password openwehr_db_password synapse_db_password \
   keycloak_admin_password onlyoffice_jwt_secret; do
-  if [[ ! -e "$INSTALL_PATH/secrets/$name" ]]; then
+  [[ ! -L "$INSTALL_PATH/secrets/$name" ]] || fail "Refusing symlinked secret file: $name"
+  if [[ -e "$INSTALL_PATH/secrets/$name" ]]; then
+    [[ -f "$INSTALL_PATH/secrets/$name" ]] || fail "Secret path is not a regular file: $name"
+  else
     openssl rand -hex 32 > "$INSTALL_PATH/secrets/$name"
-    chmod 0600 "$INSTALL_PATH/secrets/$name"
   fi
+  chmod 0600 "$INSTALL_PATH/secrets/$name"
 done
+[[ ! -L "$INSTALL_PATH/secrets/openwehr_app_key" ]] || fail "Refusing symlinked OpenWehr app key"
 if [[ ! -e "$INSTALL_PATH/secrets/openwehr_app_key" ]]; then
   printf 'base64:%s\n' "$(openssl rand -base64 32 | tr -d '\n')" > "$INSTALL_PATH/secrets/openwehr_app_key"
-  chmod 0600 "$INSTALL_PATH/secrets/openwehr_app_key"
 fi
+[[ ! -L "$INSTALL_PATH/secrets/mail_smtp_password" ]] || fail "Refusing symlinked SMTP secret"
 if [[ ! -e "$INSTALL_PATH/secrets/mail_smtp_password" ]]; then
   : > "$INSTALL_PATH/secrets/mail_smtp_password"
-  chmod 0600 "$INSTALL_PATH/secrets/mail_smtp_password"
 fi
+for name in openwehr_app_key mail_smtp_password; do
+  [[ -f "$INSTALL_PATH/secrets/$name" ]] || fail "Secret path is not a regular file: $name"
+  chmod 0600 "$INSTALL_PATH/secrets/$name"
+done
 for entry in "postgres/data:70:70" "matrix/data:991:991" "keycloak/providers:1000:1000" \
-  "keycloak/themes:1000:1000" "openwehr/storage:1000:1000" "openwehr/uploads:1000:1000" "grav/config:1000:1000"; do
+  "keycloak/themes:1000:1000" "openwehr/storage/app:82:82" "grav/config:1000:1000"; do
   dir=${entry%%:*}
   owner=${entry#*:}
   uid=${owner%%:*}
@@ -334,11 +437,14 @@ for entry in "postgres/data:70:70" "matrix/data:991:991" "keycloak/providers:100
     chown "$uid:$gid" "$INSTALL_PATH/$dir"
   fi
 done
+[[ ! -L "$INSTALL_PATH/traefik/acme/acme.json" ]] || fail "Refusing symlinked Traefik ACME file"
 touch "$INSTALL_PATH/traefik/acme/acme.json"
 chmod 0600 "$INSTALL_PATH/traefik/acme/acme.json"
 if [[ -n "$DNS_ENV_FILE" && ! -e "$INSTALL_PATH/secrets/dns.env" ]]; then
   install -m 0600 "$DNS_ENV_FILE" "$INSTALL_PATH/secrets/dns.env"
 fi
+[[ ! -L "$INSTALL_PATH/secrets/dns.env" ]] || fail "Refusing symlinked DNS provider file"
+find "$INSTALL_PATH/secrets" -maxdepth 1 -type f -exec chmod 0600 {} +
 if [[ -n "${enabled[openwehr]:-}" && ! -f "$INSTALL_PATH/openwehr/source/Dockerfile" ]]; then
   if [[ -n "$OPENWEHR_SOURCE" ]]; then
     tar -C "$OPENWEHR_SOURCE" --exclude='./.git' --exclude='./.env' -cf - . |
@@ -365,7 +471,7 @@ write_env() {
     printf 'ACME_CHALLENGE=%s\nACME_DNS_PROVIDER=%s\n' "${values[ACME_CHALLENGE]}" "${values[ACME_DNS_PROVIDER]}"
     printf 'ENABLED_APPS=%s\nMATRIX_FEDERATION=%s\nMATRIX_SERVER_NAME=%s\n' \
       "${values[ENABLED_APPS]}" "${values[MATRIX_FEDERATION]}" "${values[MATRIX_SERVER_NAME]}"
-    for key in KEYCLOAK_HOST OPENWEHR_HOST MATRIX_HOST ELEMENT_HOST ONLYOFFICE_HOST GRAV_HOST KEYCLOAK_ADMIN_USER; do
+    for key in KEYCLOAK_HOST OPENWEHR_HOST MATRIX_HOST ELEMENT_HOST ONLYOFFICE_HOST GRAV_HOST KEYCLOAK_ADMIN_USER OPENWEHR_ADMIN_EMAILS; do
       printf '%s=%s\n' "$key" "${values[$key]}"
     done
     printf 'VPN_BACKEND_IP=%s\n' "${values[VPN_BACKEND_IP]}"
@@ -395,7 +501,7 @@ if [[ ! -e "$INSTALL_PATH/element/config.json" ]]; then
   "brand": "Feuerwehr"
 }
 EOF
-  chmod 0640 "$INSTALL_PATH/element/config.json"
+  chmod 0644 "$INSTALL_PATH/element/config.json"
 fi
 
 if [[ "${values[PROXY_MODE]}" == own || "${values[PROXY_MODE]}" == same-host ]]; then
@@ -414,7 +520,7 @@ compose=(docker compose --project-directory "$INSTALL_PATH" -f "$INSTALL_PATH/co
 if [[ "$NO_START" != true ]]; then
   if [[ -n "${enabled[matrix]:-}" && ! -f "$INSTALL_PATH/matrix/data/homeserver.yaml" ]]; then
     "${compose[@]}" run --rm --no-deps synapse generate
-    "${compose[@]}" run --rm --no-deps --entrypoint python synapse /stack/configure_synapse.py
+    "${compose[@]}" run --rm --no-deps --user 991:991 --entrypoint python synapse /stack/configure_synapse.py
   fi
   "${compose[@]}" up -d
   info "Stack started. Check service health: $INSTALL_PATH/scripts/healthcheck.sh"

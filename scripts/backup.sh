@@ -12,8 +12,25 @@ apps=$(sed -n 's/^ENABLED_APPS=//p' "$ROOT/.env" | head -n 1)
 IFS=',' read -r -a selected_apps <<< "$apps"
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 staging=$(mktemp -d "$ROOT/backups/.staging.XXXXXX")
-trap 'rm -rf -- "$staging"' EXIT
+stopped=()
+restart_apps() {
+  if ((${#stopped[@]})) && ! "${compose[@]}" start "${stopped[@]}" >/dev/null; then
+    echo "WARN: could not restart every stopped application container." >&2
+  fi
+}
+cleanup() {
+  restart_apps
+  rm -rf -- "$staging"
+}
+trap cleanup EXIT
 mkdir -m 0700 "$staging/files" "$staging/database"
+
+mapfile -t running_services < <("${compose[@]}" ps --services --status running)
+for service in "${running_services[@]}"; do
+  case "$service" in postgres|redis|traefik) continue ;; esac
+  stopped+=("$service")
+done
+if ((${#stopped[@]})); then "${compose[@]}" stop "${stopped[@]}"; fi
 
 for app in "${selected_apps[@]}"; do
   case "$app" in

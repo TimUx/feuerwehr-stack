@@ -6,7 +6,7 @@ command -v docker >/dev/null || { echo "Docker CLI not available; Compose config
 docker compose version >/dev/null 2>&1 || { echo "Compose plugin not available; validation skipped."; exit 0; }
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT
-mkdir -p "$tmp"/{scripts,secrets,postgres/data,keycloak/providers,keycloak/themes,openwehr/source,openwehr/storage,openwehr/uploads,matrix/data,element,onlyoffice/logs,onlyoffice/data,onlyoffice/lib,grav/config,traefik/acme,integrations/traefik}
+mkdir -p "$tmp"/{scripts,secrets,postgres/data,keycloak/providers,keycloak/themes,openwehr/source,openwehr/storage/app,matrix/data,element,onlyoffice/logs,onlyoffice/data,onlyoffice/lib,grav/config,traefik/acme,integrations/traefik}
 cp "$ROOT/compose.yml" "$tmp/"
 cp "$ROOT"/scripts/* "$tmp/scripts/"
 for name in postgres_superuser_password keycloak_db_password openwehr_db_password synapse_db_password \
@@ -48,6 +48,29 @@ for mode in own same-host remote; do
   [[ ! -f "$tmp/compose.proxy.yml" ]] || args+=(-f "$tmp/compose.proxy.yml")
   [[ ! -f "$tmp/compose.remote.yml" ]] || args+=(-f "$tmp/compose.remote.yml")
   "${args[@]}" config --quiet
+  "${args[@]}" config --format json > "$tmp/config.json"
+  python3 - "$tmp/config.json" "$mode" <<'PY'
+import json
+import sys
+
+configuration = json.load(open(sys.argv[1], encoding="utf-8"))
+mode = sys.argv[2]
+published = {
+    service: service_config.get("ports", [])
+    for service, service_config in configuration["services"].items()
+    if service_config.get("ports")
+}
+if mode != "own":
+    published.pop("traefik", None)  # The proxy profile is not enabled in those modes.
+if mode == "own":
+    assert set(published) == {"traefik"}, published
+    assert {entry["target"] for entry in published["traefik"]} == {80, 443}
+elif mode == "same-host":
+    assert not published, published
+else:
+    assert set(published) == {"keycloak", "synapse", "element"}, published
+    assert all(entry["host_ip"] == "10.20.0.5" for ports in published.values() for entry in ports)
+PY
   rm -f "$tmp/compose.proxy.yml" "$tmp/compose.remote.yml"
 done
 echo "Compose model validation passed for all proxy modes."
