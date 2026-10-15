@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+secrets/*
+!secrets/.gitkeep
+backups/*
+logs/*
+matrix/data/*
+matrix/element-config.json
+compose.remote.yml
+integrations/traefik/*
+!integrations/traefik/.gitkeep
