@@ -1,0 +1,318 @@
+name: feuerwehr
+
+services:
+  postgres:
+    image: postgres:16.6-alpine
+    profiles: [data]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_superuser_password
+      KEYCLOAK_DB_PASSWORD_FILE: /run/secrets/keycloak_db_password
+      OPENWEHR_DB_PASSWORD_FILE: /run/secrets/openwehr_db_password
+      SYNAPSE_DB_PASSWORD_FILE: /run/secrets/synapse_db_password
+    secrets:
+      - postgres_superuser_password
+      - keycloak_db_password
+      - openwehr_db_password
+      - synapse_db_password
+    volumes:
+      - ${STACK_ROOT:?Set STACK_ROOT}/postgres/data:/var/lib/postgresql/data
+      - ./scripts/postgres-init.sh:/docker-entrypoint-initdb.d/10-feuerwehr-users.sh:ro
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    stop_grace_period: 1m
+    security_opt: ["no-new-privileges:true"]
+
+  redis:
+    image: redis:7.4.2-alpine
+    profiles: [openwehr]
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    security_opt: ["no-new-privileges:true"]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.1.4
+    profiles: [keycloak]
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/stack/keycloak-entrypoint.sh"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL_HOST: postgres
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_USERNAME: keycloak
+      KC_HOSTNAME: https://${KEYCLOAK_HOST:?Set KEYCLOAK_HOST}
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:-kcadmin}
+    secrets:
+      - keycloak_db_password
+      - keycloak_admin_password
+    volumes:
+      - ./scripts/keycloak-entrypoint.sh:/stack/keycloak-entrypoint.sh:ro
+      - ${STACK_ROOT}/keycloak/providers:/opt/keycloak/providers
+      - ${STACK_ROOT}/keycloak/themes:/opt/keycloak/themes
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend, frontend]
+    expose: ["8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/9000'"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    security_opt: ["no-new-privileges:true"]
+
+  openwehr:
+    image: feuerwehr/openwehr:local
+    build:
+      context: ${STACK_ROOT}/openwehr/source
+      dockerfile: Dockerfile
+    profiles: [openwehr]
+    restart: unless-stopped
+    environment:
+      APP_NAME: OpenWehr
+      APP_ENV: production
+      APP_DEBUG: "false"
+      ADMIN_EMAILS: ${OPENWEHR_ADMIN_EMAILS:-}
+      APP_URL: https://${OPENWEHR_HOST:?Set OPENWEHR_HOST}
+      AUTORUN_ENABLED: "false"
+      APP_TIMEZONE: Europe/Berlin
+      APP_LOCALE: de
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_DATABASE: openwehr
+      DB_USERNAME: openwehr
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      LOG_CHANNEL: stderr
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: database
+      SESSION_SECURE_COOKIE: "true"
+      MAGIC_LINK_TTL_MINUTES: "15"
+      MAIL_MAILER: ${MAIL_MAILER:-smtp}
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_ENCRYPTION: ${MAIL_ENCRYPTION:-tls}
+      MAIL_PASSWORD_FILE: /run/secrets/mail_smtp_password
+      MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Feuerwehr}
+    entrypoint: ["/bin/sh", "/stack/openwehr-entrypoint.sh"]
+    secrets: [openwehr_db_password, openwehr_app_key, mail_smtp_password]
+    volumes:
+      - ./scripts/openwehr-entrypoint.sh:/stack/openwehr-entrypoint.sh:ro
+      - ${STACK_ROOT}/openwehr/storage/app:/var/www/html/storage/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose: ["8080"]
+    networks: [backend, frontend]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1:8080/up') ? 0 : 1);"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  openwehr-worker:
+    image: feuerwehr/openwehr:local
+    build:
+      context: ${STACK_ROOT}/openwehr/source
+      dockerfile: Dockerfile
+    profiles: [openwehr]
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      ADMIN_EMAILS: ${OPENWEHR_ADMIN_EMAILS:-}
+      AUTORUN_ENABLED: "false"
+      APP_TIMEZONE: Europe/Berlin
+      APP_LOCALE: de
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_DATABASE: openwehr
+      DB_USERNAME: openwehr
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      LOG_CHANNEL: stderr
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: database
+      MAGIC_LINK_TTL_MINUTES: "15"
+      MAIL_MAILER: ${MAIL_MAILER:-smtp}
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_ENCRYPTION: ${MAIL_ENCRYPTION:-tls}
+      MAIL_PASSWORD_FILE: /run/secrets/mail_smtp_password
+      MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Feuerwehr}
+    entrypoint: ["/bin/sh", "/stack/openwehr-entrypoint.sh"]
+    secrets: [openwehr_db_password, openwehr_app_key, mail_smtp_password]
+    command: ["php", "artisan", "queue:work", "--tries=3", "--sleep=3", "--timeout=90"]
+    volumes:
+      - ./scripts/openwehr-entrypoint.sh:/stack/openwehr-entrypoint.sh:ro
+      - ${STACK_ROOT}/openwehr/storage/app:/var/www/html/storage/app
+    depends_on:
+      openwehr:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    networks: [backend]
+    security_opt: ["no-new-privileges:true"]
+
+  synapse:
+    image: matrixdotorg/synapse:v1.125.0
+    profiles: [matrix]
+    restart: unless-stopped
+    environment:
+      SYNAPSE_CONFIG_PATH: /data/homeserver.yaml
+      SYNAPSE_SERVER_NAME: ${MATRIX_SERVER_NAME}
+      SYNAPSE_REPORT_STATS: "no"
+      MATRIX_FEDERATION: ${MATRIX_FEDERATION:-false}
+      UID: "991"
+      GID: "991"
+    secrets: [synapse_db_password]
+    volumes:
+      - ${STACK_ROOT}/matrix/data:/data
+      - ./scripts/configure-synapse.py:/stack/configure_synapse.py:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose: ["8008"]
+    networks: [backend, frontend]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8008/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    security_opt: ["no-new-privileges:true"]
+
+  fluffychat:
+    image: ghcr.io/etkecc/fluffychat-web:v2.10.0
+    profiles: [matrix]
+    restart: unless-stopped
+    volumes:
+      - ${STACK_ROOT}/fluffychat/config.json:/var/public/config.json:ro
+    expose: ["8080"]
+    networks: [frontend]
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    security_opt: ["no-new-privileges:true"]
+
+  onlyoffice:
+    image: onlyoffice/documentserver:8.3.3.1
+    profiles: [onlyoffice]
+    restart: unless-stopped
+    entrypoint: ["/bin/bash", "/stack/onlyoffice-entrypoint.sh"]
+    environment:
+      JWT_ENABLED: "true"
+      JWT_HEADER: AuthorizationJwt
+    secrets: [onlyoffice_jwt_secret]
+    volumes:
+      - ./scripts/onlyoffice-entrypoint.sh:/stack/onlyoffice-entrypoint.sh:ro
+      - ${STACK_ROOT}/onlyoffice/logs:/var/log/onlyoffice
+      - ${STACK_ROOT}/onlyoffice/data:/var/www/onlyoffice/Data
+      - ${STACK_ROOT}/onlyoffice/lib:/var/lib/onlyoffice
+    expose: ["80"]
+    networks: [backend, frontend]
+    security_opt: ["no-new-privileges:true"]
+
+  grav:
+    image: lscr.io/linuxserver/grav:version-1.7.48
+    profiles: [grav]
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: UTC
+    volumes:
+      - ${STACK_ROOT}/grav/config:/config
+    expose: ["80"]
+    networks: [frontend]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    security_opt: ["no-new-privileges:true"]
+
+  traefik:
+    image: traefik:v3.3.4
+    profiles: [proxy]
+    restart: unless-stopped
+    command:
+      - --api.dashboard=false
+      - --ping=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=feuerwehr_frontend
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --certificatesresolvers.feuerwehr.acme.email=${ACME_EMAIL:?Set ACME_EMAIL}
+      - --certificatesresolvers.feuerwehr.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.feuerwehr.acme.httpchallenge.entrypoint=web
+    ports: ["80:80", "443:443"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${STACK_ROOT}/traefik/acme:/letsencrypt
+    networks: [frontend]
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    security_opt: ["no-new-privileges:true"]
+
+secrets:
+  postgres_superuser_password:
+    file: ${STACK_ROOT:?Set STACK_ROOT}/secrets/postgres_superuser_password
+  keycloak_db_password:
+    file: ${STACK_ROOT}/secrets/keycloak_db_password
+  openwehr_db_password:
+    file: ${STACK_ROOT}/secrets/openwehr_db_password
+  synapse_db_password:
+    file: ${STACK_ROOT}/secrets/synapse_db_password
+  keycloak_admin_password:
+    file: ${STACK_ROOT}/secrets/keycloak_admin_password
+  openwehr_app_key:
+    file: ${STACK_ROOT}/secrets/openwehr_app_key
+  onlyoffice_jwt_secret:
+    file: ${STACK_ROOT}/secrets/onlyoffice_jwt_secret
+  mail_smtp_password:
+    file: ${STACK_ROOT}/secrets/mail_smtp_password
+
+networks:
+  backend:
+    internal: true
+  frontend:
+    name: feuerwehr_frontend
