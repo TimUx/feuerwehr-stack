@@ -11,7 +11,7 @@ keycloak/themes/*
 openwehr/storage/*
 openwehr/uploads/*
 matrix/data/*
-element/config.json
+fluffychat/config.json
 onlyoffice/logs/*
 onlyoffice/data/*
 onlyoffice/lib/*

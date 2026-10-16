@@ -11,7 +11,7 @@ Modularer Docker-Compose-Stack für eine einzelne Debian-/Ubuntu-Maschine. Der I
 | PostgreSQL mit getrennten Datenbanken/Rollen | Implementiert; Datenbankstart und Migrationen müssen auf dem Zielhost geprüft werden |
 | Keycloak | Container und Bootstrap-Zugang vorbereitet; Realm und OIDC-Clients werden bewusst manuell eingerichtet |
 | OpenWehr | Produktivmodus, Redis, Worker, Scheduler-Unterstützung, persistentes Storage und SMTP-Umgebung vorbereitet; baut den geprüften OpenWehr-Quellstand |
-| Matrix Synapse und Element | Synapse-Konfiguration wird beim ersten Start erzeugt und auf PostgreSQL gesetzt; Registrierung ist aus |
+| Matrix Synapse und FluffyChat Web | Synapse-Konfiguration wird beim ersten Start erzeugt und auf PostgreSQL gesetzt; Registrierung ist aus |
 | ONLYOFFICE Docs | JWT wird aus einer Secret-Datei geladen; Containerpfade folgen der offiziellen Community-Image-Dokumentation |
 | GRAV | LinuxServer-Image mit persistentem `/config`-Mount |
 
@@ -33,7 +33,7 @@ Lege vorab beispielsweise folgende DNS-Einträge an (nur aktivierte Dienste sind
 id.feuerwehr.example.de       -> Reverse Proxy
 wehr.feuerwehr.example.de     -> Reverse Proxy
 matrix.feuerwehr.example.de   -> Reverse Proxy
-chat.feuerwehr.example.de     -> Reverse Proxy
+chat.feuerwehr.example.de     -> Reverse Proxy (FluffyChat Web)
 docs.feuerwehr.example.de     -> Reverse Proxy
 www.feuerwehr.example.de      -> Reverse Proxy
 ```
@@ -95,7 +95,7 @@ sudo ./scripts/uninstall.sh
 ├── keycloak/{providers,themes}/
 ├── openwehr/{source,storage/app}/
 ├── matrix/data/             # homeserver.yaml, Signaturschlüssel, Medien
-├── element/config.json
+├── fluffychat/config.json
 ├── onlyoffice/{logs,data,lib}/
 ├── grav/config/
 ├── traefik/acme/acme.json
@@ -143,11 +143,13 @@ Der upstream bereitgestellte Dockerfile-Basisimage-Tag ist nicht als Digest gepi
 
 `OPENWEHR_ADMIN_EMAILS` ist eine ausdrückliche Liste initialer Administrator-E-Mail-Adressen. Upstreams `app:ensure-admins` aktiviert bzw. erstellt diese Konten beim Start; halte die Liste deshalb eng und ändere sie nach Bedarf.
 
-### Matrix Synapse und Element
+### Matrix Synapse und FluffyChat Web
 
 Synapse `v1.125.0` speichert Medien und Konfiguration unter `matrix/data`; die beim ersten Start erzeugte Konfiguration wird auf PostgreSQL gesetzt, Statistiken und offene Registrierung sind deaktiviert. Federation ist standardmäßig aus; `MATRIX_FEDERATION=true` erlaubt Synapse Federation, ersetzt aber keine DNS-, Firewall- oder Well-known-Konfiguration.
 
-`MATRIX_SERVER_NAME` ist die Matrix-Identität und kann von `MATRIX_HOST` abweichen. In diesem Fall müssen die Matrix-`/.well-known`-Dokumente und DNS gezielt eingerichtet werden. Der Stack erzeugt sie nicht. Element `v1.11.92` zeigt auf `MATRIX_HOST`; Synapse-OIDC/Element-OIDC ist nicht fertig eingerichtet und darf nicht als verfügbar angenommen werden.
+FluffyChat Web `v2.10.0` wird als statischer Webclient aus `ghcr.io/etkecc/fluffychat-web` bereitgestellt. Seine `config.json` setzt `defaultHomeserver` auf `MATRIX_HOST`. FluffyChat-SSO/OIDC mit Synapse und Keycloak ist nicht fertig eingerichtet und darf nicht als verfügbar angenommen werden.
+
+`MATRIX_SERVER_NAME` ist die Matrix-Identität und kann von `MATRIX_HOST` abweichen. In diesem Fall müssen die Matrix-`/.well-known`-Dokumente und DNS gezielt eingerichtet werden. Der Stack erzeugt sie nicht.
 
 ### ONLYOFFICE und GRAV
 

@@ -28,7 +28,7 @@ Alle Anwendungsdaten und Secrets liegen als Host-Bind-Mounts unter `${STACK_ROOT
 | `data` | PostgreSQL 16.6 | Gemeinsamer persistenter Cluster |
 | `keycloak` | Keycloak 26.1.4 | Datenbank `keycloak`, Rolle `keycloak` |
 | `openwehr` | OpenWehr Web, Queue-Worker, Redis | DB `openwehr`, Rolle `openwehr`; Cache/Queue in Redis |
-| `matrix` | Synapse, Element Web | DB `synapse`, Rolle `synapse` |
+| `matrix` | Synapse, FluffyChat Web | DB `synapse`, Rolle `synapse` |
 | `onlyoffice` | ONLYOFFICE Docs Community | Eingebettete Community-Komponenten |
 | `grav` | GRAV CMS | Dateibasierte Inhalte unter `/config` |
 | `proxy` | Eigener Traefik | Nur im Modus `own` aktiviert |

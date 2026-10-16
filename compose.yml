@@ -212,16 +212,16 @@ services:
       start_period: 60s
     security_opt: ["no-new-privileges:true"]
 
-  element:
-    image: vectorim/element-web:v1.11.92
+  fluffychat:
+    image: ghcr.io/etkecc/fluffychat-web:v2.10.0
     profiles: [matrix]
     restart: unless-stopped
     volumes:
-      - ${STACK_ROOT}/element/config.json:/app/config.json:ro
-    expose: ["80"]
+      - ${STACK_ROOT}/fluffychat/config.json:/var/public/config.json:ro
+    expose: ["8080"]
     networks: [frontend]
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/health"]
       interval: 30s
       timeout: 5s
       retries: 5

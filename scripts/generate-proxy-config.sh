@@ -57,7 +57,7 @@ EOF
       openwehr) add_remote openwehr "$(env_value OPENWEHR_HOST)" "$(env_value OPENWEHR_PORT)" 8080 ;;
       matrix)
         add_remote synapse "$(env_value MATRIX_HOST)" "$(env_value MATRIX_PORT)" 8008
-        add_remote element "$(env_value ELEMENT_HOST)" "$(env_value ELEMENT_PORT)" 80
+        add_remote fluffychat "$(env_value FLUFFYCHAT_HOST)" "$(env_value FLUFFYCHAT_PORT)" 8080
         ;;
       onlyoffice) add_remote onlyoffice "$(env_value ONLYOFFICE_HOST)" "$(env_value ONLYOFFICE_PORT)" 80 ;;
       grav) add_remote grav "$(env_value GRAV_HOST)" "$(env_value GRAV_PORT)" 80 ;;
@@ -119,7 +119,7 @@ EOF
       openwehr) add_labels openwehr "$(env_value OPENWEHR_HOST)" 8080 ;;
       matrix)
         add_labels synapse "$(env_value MATRIX_HOST)" 8008
-        add_labels element "$(env_value ELEMENT_HOST)" 80
+        add_labels fluffychat "$(env_value FLUFFYCHAT_HOST)" 8080
         ;;
       onlyoffice) add_labels onlyoffice "$(env_value ONLYOFFICE_HOST)" 80 ;;
       grav) add_labels grav "$(env_value GRAV_HOST)" 80 ;;

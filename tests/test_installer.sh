@@ -34,4 +34,16 @@ if "$ROOT/install.sh" --config "$tmp/invalid-ip.env" --path "$tmp/invalid" --dry
   exit 1
 fi
 [[ ! -e "$tmp/invalid" ]]
+
+cat > "$tmp/legacy-element.env" <<'EOF'
+PROXY_MODE=remote
+VPN_BACKEND_IP=10.20.0.5
+ENABLED_APPS=matrix
+BASE_DOMAIN=example.org
+MATRIX_SERVER_NAME=matrix.example.org
+ELEMENT_HOST=legacy-chat.example.org
+ELEMENT_PORT=18090
+EOF
+legacy_output=$("$ROOT/install.sh" --config "$tmp/legacy-element.env" --path "$tmp/legacy" --dry-run)
+grep -q 'FluffyChat:     legacy-chat.example.org' <<< "$legacy_output"
 echo "Installer dry-run, path protection, and VPN input checks passed."

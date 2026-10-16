@@ -33,10 +33,10 @@ Options:
 Config keys: INSTALL_PATH, BASE_DOMAIN, ACME_EMAIL, PROXY_MODE, ENABLED_APPS,
 ENABLE_PROXY_ROUTES, TRAEFIK_NETWORK, TRAEFIK_CERT_RESOLVER, ACME_CHALLENGE,
 ACME_DNS_PROVIDER, ACME_DNS_ENV_FILE, MATRIX_SERVER_NAME, MATRIX_FEDERATION,
-VPN_BACKEND_IP, KEYCLOAK_HOST, OPENWEHR_HOST, MATRIX_HOST, ELEMENT_HOST,
+VPN_BACKEND_IP, KEYCLOAK_HOST, OPENWEHR_HOST, MATRIX_HOST, FLUFFYCHAT_HOST,
 ONLYOFFICE_HOST, GRAV_HOST, KEYCLOAK_ADMIN_USER, OPENWEHR_SOURCE, MAIL_HOST,
 MAIL_PORT, MAIL_USERNAME, MAIL_ENCRYPTION, MAIL_FROM_ADDRESS, MAIL_FROM_NAME,
-KEYCLOAK_PORT, OPENWEHR_PORT, MATRIX_PORT, ELEMENT_PORT, ONLYOFFICE_PORT,
+KEYCLOAK_PORT, OPENWEHR_PORT, MATRIX_PORT, FLUFFYCHAT_PORT, ONLYOFFICE_PORT,
 GRAV_PORT, OPENWEHR_ADMIN_EMAILS.
 EOF
 }
@@ -61,9 +61,9 @@ done
 for key in INSTALL_PATH BASE_DOMAIN ACME_EMAIL PROXY_MODE ENABLED_APPS ENABLE_PROXY_ROUTES \
   TRAEFIK_NETWORK TRAEFIK_CERT_RESOLVER ACME_CHALLENGE ACME_DNS_PROVIDER ACME_DNS_ENV_FILE \
   MATRIX_SERVER_NAME MATRIX_FEDERATION VPN_BACKEND_IP KEYCLOAK_HOST OPENWEHR_HOST MATRIX_HOST \
-  ELEMENT_HOST ONLYOFFICE_HOST GRAV_HOST KEYCLOAK_ADMIN_USER OPENWEHR_SOURCE MAIL_HOST MAIL_PORT \
+  ELEMENT_HOST FLUFFYCHAT_HOST ONLYOFFICE_HOST GRAV_HOST KEYCLOAK_ADMIN_USER OPENWEHR_SOURCE MAIL_HOST MAIL_PORT \
   MAIL_USERNAME MAIL_ENCRYPTION MAIL_FROM_ADDRESS MAIL_FROM_NAME KEYCLOAK_PORT OPENWEHR_PORT \
-  MATRIX_PORT ELEMENT_PORT ONLYOFFICE_PORT GRAV_PORT OPENWEHR_ADMIN_EMAILS; do
+  MATRIX_PORT ELEMENT_PORT FLUFFYCHAT_PORT ONLYOFFICE_PORT GRAV_PORT OPENWEHR_ADMIN_EMAILS; do
   allowed["$key"]=1
 done
 
@@ -102,7 +102,7 @@ INSTALL_PATH="$(realpath -m -- "$INSTALL_PATH")"
   fail "Installation path may contain only letters, digits, slash, dot, underscore, hyphen, and spaces"
 [[ ! -e "$INSTALL_PATH" || -d "$INSTALL_PATH" ]] || fail "Installation path exists and is not a directory"
 [[ ! -L "$INSTALL_PATH/.env" ]] || fail "Refusing a symlinked stack .env"
-for name in secrets postgres keycloak openwehr matrix element onlyoffice grav traefik backups logs integrations scripts; do
+for name in secrets postgres keycloak openwehr matrix fluffychat onlyoffice grav traefik backups logs integrations scripts; do
   [[ ! -L "$INSTALL_PATH/$name" ]] || fail "Refusing symlinked installation directory: $INSTALL_PATH/$name"
 done
 
@@ -110,6 +110,12 @@ if [[ -f "$INSTALL_PATH/.env" ]]; then
   read_config "$INSTALL_PATH/.env"
 fi
 for key in "${!supplied[@]}"; do values["$key"]=${supplied[$key]}; done
+if [[ -z "${values[FLUFFYCHAT_HOST]:-}" && -n "${values[ELEMENT_HOST]:-}" ]]; then
+  values[FLUFFYCHAT_HOST]=${values[ELEMENT_HOST]}
+fi
+if [[ -z "${values[FLUFFYCHAT_PORT]:-}" && -n "${values[ELEMENT_PORT]:-}" ]]; then
+  values[FLUFFYCHAT_PORT]=${values[ELEMENT_PORT]}
+fi
 
 prompt() {
   local key=$1 prompt_text=$2 default=$3 answer
@@ -147,7 +153,7 @@ prompt VPN_BACKEND_IP "VPN-IP des Backend-Hosts (Remote-Modus)" ""
 prompt KEYCLOAK_HOST "Keycloak-Subdomain" "id.${values[BASE_DOMAIN]}"
 prompt OPENWEHR_HOST "OpenWehr-Subdomain" "wehr.${values[BASE_DOMAIN]}"
 prompt MATRIX_HOST "Matrix-API-Subdomain" "matrix.${values[BASE_DOMAIN]}"
-prompt ELEMENT_HOST "Element-Subdomain" "chat.${values[BASE_DOMAIN]}"
+prompt FLUFFYCHAT_HOST "FluffyChat-Subdomain" "chat.${values[BASE_DOMAIN]}"
 prompt ONLYOFFICE_HOST "ONLYOFFICE-Subdomain" "docs.${values[BASE_DOMAIN]}"
 prompt GRAV_HOST "GRAV-Subdomain" "www.${values[BASE_DOMAIN]}"
 prompt KEYCLOAK_ADMIN_USER "Initialer Keycloak-Administrator" kcadmin
@@ -184,7 +190,7 @@ fi
 valid_domain() {
   [[ ${#1} -le 253 && "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$ ]]
 }
-for key in BASE_DOMAIN KEYCLOAK_HOST OPENWEHR_HOST MATRIX_HOST ELEMENT_HOST ONLYOFFICE_HOST GRAV_HOST MATRIX_SERVER_NAME; do
+for key in BASE_DOMAIN KEYCLOAK_HOST OPENWEHR_HOST MATRIX_HOST FLUFFYCHAT_HOST ONLYOFFICE_HOST GRAV_HOST MATRIX_SERVER_NAME; do
   valid_domain "${values[$key]}" || fail "Invalid domain: ${values[$key]}"
 done
 [[ "${values[KEYCLOAK_ADMIN_USER]}" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || fail "Invalid KEYCLOAK_ADMIN_USER"
@@ -243,13 +249,13 @@ if [[ "${values[PROXY_MODE]}" == remote ]]; then
     fail "VPN_BACKEND_IP must be an RFC1918 or shared-address private IPv4 address"
 fi
 
-for key in KEYCLOAK_PORT OPENWEHR_PORT MATRIX_PORT ELEMENT_PORT ONLYOFFICE_PORT GRAV_PORT; do
+for key in KEYCLOAK_PORT OPENWEHR_PORT MATRIX_PORT FLUFFYCHAT_PORT ONLYOFFICE_PORT GRAV_PORT; do
   default=18080
   case "$key" in
     KEYCLOAK_PORT) default=18084 ;;
     OPENWEHR_PORT) default=18080 ;;
     MATRIX_PORT) default=18008 ;;
-    ELEMENT_PORT) default=18081 ;;
+    FLUFFYCHAT_PORT) default=18081 ;;
     ONLYOFFICE_PORT) default=18082 ;;
     GRAV_PORT) default=18083 ;;
   esac
@@ -265,7 +271,7 @@ if [[ "${values[PROXY_MODE]}" == remote ]]; then
     case "$app" in
       keycloak) selected_ports+=("${values[KEYCLOAK_PORT]}") ;;
       openwehr) selected_ports+=("${values[OPENWEHR_PORT]}") ;;
-      matrix) selected_ports+=("${values[MATRIX_PORT]}" "${values[ELEMENT_PORT]}") ;;
+      matrix) selected_ports+=("${values[MATRIX_PORT]}" "${values[FLUFFYCHAT_PORT]}") ;;
       onlyoffice) selected_ports+=("${values[ONLYOFFICE_PORT]}") ;;
       grav) selected_ports+=("${values[GRAV_PORT]}") ;;
     esac
@@ -349,8 +355,8 @@ if [[ "${values[ENABLE_PROXY_ROUTES]}" == true ]] && command -v getent >/dev/nul
     esac
     getent ahosts "$host" >/dev/null || printf 'WARN: DNS currently does not resolve %s\n' "$host" >&2
     if [[ "$app" == matrix ]]; then
-      getent ahosts "${values[ELEMENT_HOST]}" >/dev/null ||
-        printf 'WARN: DNS currently does not resolve %s\n' "${values[ELEMENT_HOST]}" >&2
+      getent ahosts "${values[FLUFFYCHAT_HOST]}" >/dev/null ||
+        printf 'WARN: DNS currently does not resolve %s\n' "${values[FLUFFYCHAT_HOST]}" >&2
     fi
   done
 fi
@@ -374,6 +380,7 @@ Installation summary
   Applications:   ${values[ENABLED_APPS]}
   Proxy mode:     ${values[PROXY_MODE]}
   Proxy routes:   ${values[ENABLE_PROXY_ROUTES]}
+  FluffyChat:     ${values[FLUFFYCHAT_HOST]}
   Base domain:    ${values[BASE_DOMAIN]}
   TLS challenge:  ${values[ACME_CHALLENGE]}
   Matrix server:  ${values[MATRIX_SERVER_NAME]} (federation: ${values[MATRIX_FEDERATION]})
@@ -390,11 +397,11 @@ if [[ "$ASSUME_YES" != true ]]; then
 fi
 
 install -d -m 0750 "$INSTALL_PATH"
-install -d -m 0750 "$INSTALL_PATH"/{secrets,postgres/data,keycloak/providers,keycloak/themes,openwehr/source,openwehr/storage/app,matrix/data,element,onlyoffice/logs,onlyoffice/data,onlyoffice/lib,grav/config,traefik/acme,backups,logs,integrations/traefik}
+install -d -m 0750 "$INSTALL_PATH"/{secrets,postgres/data,keycloak/providers,keycloak/themes,openwehr/source,openwehr/storage/app,matrix/data,fluffychat,onlyoffice/logs,onlyoffice/data,onlyoffice/lib,grav/config,traefik/acme,backups,logs,integrations/traefik}
 chmod 0750 "$INSTALL_PATH"
 chmod 0700 "$INSTALL_PATH/secrets" "$INSTALL_PATH/backups"
 for name in postgres postgres/data keycloak keycloak/providers keycloak/themes openwehr openwehr/source \
-  openwehr/storage openwehr/storage/app matrix matrix/data element onlyoffice onlyoffice/logs onlyoffice/data \
+  openwehr/storage openwehr/storage/app matrix matrix/data fluffychat onlyoffice onlyoffice/logs onlyoffice/data \
   onlyoffice/lib grav grav/config traefik traefik/acme logs integrations integrations/traefik; do
   [[ ! -L "$INSTALL_PATH/$name" ]] || fail "Refusing symlinked installation directory: $INSTALL_PATH/$name"
   chmod 0750 "$INSTALL_PATH/$name"
@@ -471,14 +478,14 @@ write_env() {
     printf 'ACME_CHALLENGE=%s\nACME_DNS_PROVIDER=%s\n' "${values[ACME_CHALLENGE]}" "${values[ACME_DNS_PROVIDER]}"
     printf 'ENABLED_APPS=%s\nMATRIX_FEDERATION=%s\nMATRIX_SERVER_NAME=%s\n' \
       "${values[ENABLED_APPS]}" "${values[MATRIX_FEDERATION]}" "${values[MATRIX_SERVER_NAME]}"
-    for key in KEYCLOAK_HOST OPENWEHR_HOST MATRIX_HOST ELEMENT_HOST ONLYOFFICE_HOST GRAV_HOST KEYCLOAK_ADMIN_USER OPENWEHR_ADMIN_EMAILS; do
+    for key in KEYCLOAK_HOST OPENWEHR_HOST MATRIX_HOST FLUFFYCHAT_HOST ONLYOFFICE_HOST GRAV_HOST KEYCLOAK_ADMIN_USER OPENWEHR_ADMIN_EMAILS; do
       printf '%s=%s\n' "$key" "${values[$key]}"
     done
     printf 'VPN_BACKEND_IP=%s\n' "${values[VPN_BACKEND_IP]}"
     printf 'MAIL_MAILER=smtp\nMAIL_HOST=%s\nMAIL_PORT=%s\nMAIL_USERNAME=%s\nMAIL_ENCRYPTION=%s\n' \
       "${values[MAIL_HOST]}" "${values[MAIL_PORT]}" "${values[MAIL_USERNAME]}" "${values[MAIL_ENCRYPTION]}"
     printf 'MAIL_FROM_ADDRESS=%s\nMAIL_FROM_NAME=%s\n' "${values[MAIL_FROM_ADDRESS]}" "${values[MAIL_FROM_NAME]}"
-    for key in KEYCLOAK_PORT OPENWEHR_PORT MATRIX_PORT ELEMENT_PORT ONLYOFFICE_PORT GRAV_PORT; do
+    for key in KEYCLOAK_PORT OPENWEHR_PORT MATRIX_PORT FLUFFYCHAT_PORT ONLYOFFICE_PORT GRAV_PORT; do
       printf '%s=%s\n' "$key" "${values[$key]}"
     done
   } > "$tmp"
@@ -487,22 +494,17 @@ write_env() {
 }
 write_env
 
-if [[ ! -e "$INSTALL_PATH/element/config.json" ]]; then
-  cat > "$INSTALL_PATH/element/config.json" <<EOF
+[[ ! -L "$INSTALL_PATH/fluffychat/config.json" ]] || fail "Refusing symlinked FluffyChat config"
+if [[ ! -e "$INSTALL_PATH/fluffychat/config.json" ]]; then
+  cat > "$INSTALL_PATH/fluffychat/config.json" <<EOF
 {
-  "default_server_config": {
-    "m.homeserver": {
-      "base_url": "https://${values[MATRIX_HOST]}",
-      "server_name": "${values[MATRIX_SERVER_NAME]}"
-    }
-  },
-  "disable_custom_urls": true,
-  "disable_guests": true,
-  "brand": "Feuerwehr"
+  "applicationName": "Feuerwehr Chat",
+  "defaultHomeserver": "${values[MATRIX_HOST]}"
 }
 EOF
-  chmod 0644 "$INSTALL_PATH/element/config.json"
+  chmod 0644 "$INSTALL_PATH/fluffychat/config.json"
 fi
+[[ -f "$INSTALL_PATH/fluffychat/config.json" ]] || fail "FluffyChat config is not a regular file"
 
 if [[ "${values[PROXY_MODE]}" == own || "${values[PROXY_MODE]}" == same-host ]]; then
   "$INSTALL_PATH/scripts/generate-proxy-config.sh" "$INSTALL_PATH" "${values[ENABLED_APPS]}" \

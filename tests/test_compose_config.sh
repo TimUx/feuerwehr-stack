@@ -6,7 +6,7 @@ command -v docker >/dev/null || { echo "Docker CLI not available; Compose config
 docker compose version >/dev/null 2>&1 || { echo "Compose plugin not available; validation skipped."; exit 0; }
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT
-mkdir -p "$tmp"/{scripts,secrets,postgres/data,keycloak/providers,keycloak/themes,openwehr/source,openwehr/storage/app,matrix/data,element,onlyoffice/logs,onlyoffice/data,onlyoffice/lib,grav/config,traefik/acme,integrations/traefik}
+mkdir -p "$tmp"/{scripts,secrets,postgres/data,keycloak/providers,keycloak/themes,openwehr/source,openwehr/storage/app,matrix/data,fluffychat,onlyoffice/logs,onlyoffice/data,onlyoffice/lib,grav/config,traefik/acme,integrations/traefik}
 cp "$ROOT/compose.yml" "$tmp/"
 cp "$ROOT"/scripts/* "$tmp/scripts/"
 for name in postgres_superuser_password keycloak_db_password openwehr_db_password synapse_db_password \
@@ -19,7 +19,7 @@ COMPOSE_PROFILES=data,keycloak,matrix,onlyoffice,grav,proxy
 KEYCLOAK_HOST=id.example.org
 OPENWEHR_HOST=wehr.example.org
 MATRIX_HOST=matrix.example.org
-ELEMENT_HOST=chat.example.org
+FLUFFYCHAT_HOST=chat.example.org
 ONLYOFFICE_HOST=docs.example.org
 GRAV_HOST=www.example.org
 MATRIX_SERVER_NAME=matrix.example.org
@@ -30,9 +30,12 @@ VPN_BACKEND_IP=10.20.0.5
 KEYCLOAK_PORT=18084
 OPENWEHR_PORT=18080
 MATRIX_PORT=18008
-ELEMENT_PORT=18081
+FLUFFYCHAT_PORT=18081
 ONLYOFFICE_PORT=18082
 GRAV_PORT=18083
+EOF
+cat > "$tmp/fluffychat/config.json" <<'EOF'
+{"applicationName":"FluffyChat","defaultHomeserver":"matrix.example.org"}
 EOF
 chmod 0600 "$tmp/.env"
 
@@ -68,7 +71,7 @@ if mode == "own":
 elif mode == "same-host":
     assert not published, published
 else:
-    assert set(published) == {"keycloak", "synapse", "element"}, published
+    assert set(published) == {"keycloak", "synapse", "fluffychat"}, published
     assert all(entry["host_ip"] == "10.20.0.5" for ports in published.values() for entry in ports)
 PY
   rm -f "$tmp/compose.proxy.yml" "$tmp/compose.remote.yml"

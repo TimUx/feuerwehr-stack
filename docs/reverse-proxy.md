@@ -7,7 +7,7 @@
 | Keycloak | `KEYCLOAK_HOST` | 8080 |
 | OpenWehr | `OPENWEHR_HOST` | 8080 |
 | Synapse Client-Server/Federation | `MATRIX_HOST` | 8008 |
-| Element Web | `ELEMENT_HOST` | 80 |
+| FluffyChat Web | `FLUFFYCHAT_HOST` | 8080 |
 | ONLYOFFICE | `ONLYOFFICE_HOST` | 80 |
 | GRAV | `GRAV_HOST` | 80 |
 
@@ -49,4 +49,4 @@ Remote IPv6-Adressen werden vom Installer aktuell nicht unterstützt. Hostports 
 
 ## Matrix-Domainmodell
 
-`MATRIX_HOST` ist die HTTPS-Adresse für Client-Server-API und Element. `MATRIX_SERVER_NAME` identifiziert Matrix-Konten/Federation. Stimmen sie nicht überein, müssen `/.well-known/matrix/client` und `/.well-known/matrix/server` zur passenden API bzw. Federation-Adresse zeigen. Diese Well-known-Dateien werden nicht generiert. Federation ist standardmäßig deaktiviert und benötigt zusätzliche DNS-/Firewall-Prüfung.
+`MATRIX_HOST` ist die HTTPS-Adresse für Client-Server-API und wird als FluffyChats Standard-Homeserver konfiguriert. `MATRIX_SERVER_NAME` identifiziert Matrix-Konten/Federation. Stimmen sie nicht überein, müssen `/.well-known/matrix/client` und `/.well-known/matrix/server` zur passenden API bzw. Federation-Adresse zeigen. Diese Well-known-Dateien werden nicht generiert. Federation ist standardmäßig deaktiviert und benötigt zusätzliche DNS-/Firewall-Prüfung.
