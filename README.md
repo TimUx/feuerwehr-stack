@@ -27,13 +27,13 @@ Die Repository-Tests starten keine Container und testen keine externen Dienste. 
 - DNS-Einträge für alle aktivierten Anwendungen. Beim eigenen Traefik müssen TCP 80 und 443 öffentlich zum Host führen.
 - Für OpenWehr: SMTP-Zugangsdaten. Der Installer lädt standardmäßig den festgelegten OpenWehr-Quellcommit von GitHub, wenn kein Quellverzeichnis angegeben wird.
 
-Lege vorab beispielsweise folgende DNS-Einträge an (nur aktivierte Dienste sind erforderlich):
+Lege vorab beispielsweise folgende DNS-Einträge an (nur aktivierte Dienste sind erforderlich; alle zeigen auf den Reverse Proxy):
 
 ```text
-id.feuerwehr.example.de       -> Reverse Proxy
-wehr.feuerwehr.example.de     -> Reverse Proxy
+login.feuerwehr.example.de    -> Reverse Proxy (Keycloak)
+portal.feuerwehr.example.de   -> Reverse Proxy (OpenWehr)
 matrix.feuerwehr.example.de   -> Reverse Proxy
-chat.feuerwehr.example.de     -> Reverse Proxy (FluffyChat Web)
+messenger.feuerwehr.example.de -> Reverse Proxy (FluffyChat Web)
 docs.feuerwehr.example.de     -> Reverse Proxy
 www.feuerwehr.example.de      -> Reverse Proxy
 ```
@@ -41,7 +41,7 @@ www.feuerwehr.example.de      -> Reverse Proxy
 ## Installation
 
 1. Repository auf den Zielhost übertragen und `config/installation.env.example` kopieren und anpassen. Konfigurationsdateien enthalten keine Passwörter.
-2. Gewünschte Anwendungen im Schlüssel `ENABLED_APPS` angeben: `keycloak`, `openwehr`, `matrix`, `onlyoffice`, `grav`.
+2. Gewünschte Anwendungen im Schlüssel `ENABLED_APPS` angeben: `keycloak`, `openwehr`, `matrix`, `onlyoffice`, `grav`. Ohne Konfigurationsdatei fragt der Installer interaktiv für jede Anwendung nach, ob sie installiert werden soll.
 3. Konfiguration prüfen:
 
    ```bash
@@ -54,7 +54,7 @@ www.feuerwehr.example.de      -> Reverse Proxy
    sudo ./install.sh --config ./config/installation.env.example
    ```
 
-   Alternativ ohne Konfigurationsdatei interaktiv: `sudo ./install.sh`. Der Pfad kann mit `--path /anderer/pfad` überschrieben werden. `--no-start` legt Dateien und Secrets an, startet aber keine Container.
+   Alternativ ohne Konfigurationsdatei interaktiv: `sudo ./install.sh`. Dabei werden Primärdomain (mit Endung), App-Auswahl und je aktivierter Anwendung das DNS-Subdomain-Label abgefragt. Standardwerte sind `login` (Keycloak), `portal` (OpenWehr), `matrix` (Synapse), `messenger` (FluffyChat), `docs` (ONLYOFFICE) und `www` (Website). Für Konfigurationsdateien bleiben die `*_HOST`-Werte vollständige Domainnamen. Der Pfad kann mit `--path /anderer/pfad` überschrieben werden. `--no-start` legt Dateien und Secrets an, startet aber keine Container.
 
 Der Installer kontrolliert Betriebssystem-ID, Root-Rechte, Docker/Compose-Erreichbarkeit, Speicherplatz und bei eigenem Traefik die Hostports. Bei vorhandenen Traefik-Netzwerken prüft er den exakten Netzwerknamen. DNS-Auflösung wird als Warnung angezeigt, wenn `getent` verfügbar ist. Er verändert keine Docker-Netzwerke und überschreibt keine vorhandenen Secret-Dateien. Ein nicht leeres Ziel ohne Stack-`.env` wird abgelehnt.
 
@@ -65,7 +65,7 @@ sudo ./install.sh --config ./config/installation.env.example \
   --openwehr-source /pfad/zum/openwehr-checkout
 ```
 
-Der automatische Bezug verwendet Commit `8841840042be95ccd6d794067d8dd1f05b30b67c` von `roberteinsle/openwehr`. Der Stack baut daraus lokal das Image `feuerwehr/openwehr:local`; es existiert keine zugesicherte fertige OpenWehr-Registry-Integration.
+Der automatische Bezug verwendet den Branch `extended` von [`TimUx/openwehr-extended`](https://github.com/TimUx/openwehr-extended). Der Stack baut daraus lokal das Image `feuerwehr/openwehr:local`; es existiert keine zugesicherte fertige OpenWehr-Registry-Integration.
 
 Bei `--no-start` müssen Synapse-Konfiguration und Dienste manuell gestartet werden. Die Matrix-Dateien werden beim normalen Installationslauf mit `docker compose run` vor dem Stack-Start erzeugt.
 

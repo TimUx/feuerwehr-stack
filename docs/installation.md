@@ -6,7 +6,7 @@ Der Installer akzeptiert Debian und Ubuntu sowie Docker Engine, Compose-Plugin v
 
 ## Einstellungen
 
-Kopiere `config/installation.env.example` und setze mindestens echte Domainnamen, ACME-E-Mail, SMTP-Server/-Absender sowie die gewünschten `ENABLED_APPS`. Werte werden zeilenweise als `KEY=VALUE` gelesen, nicht als Shell-Code ausgeführt. Unbekannte Schlüssel werden ignoriert. Bestehende `.env`-Werte sind bei erneuten Installationen die Quelle der Wahrheit.
+Kopiere `config/installation.env.example` und setze mindestens echte Domainnamen, ACME-E-Mail, SMTP-Server/-Absender sowie die gewünschten `ENABLED_APPS`. `BASE_DOMAIN` ist die Primärdomain inklusive Endung; `*_HOST` enthält jeweils den vollständigen DNS-Namen. Interaktiv fragt der Installer für jede Anwendung nach der Auswahl sowie nach dem Subdomain-Label unter der Primärdomain. Die Standards sind `login` (Keycloak), `portal` (OpenWehr), `matrix` (Synapse), `messenger` (FluffyChat), `docs` (ONLYOFFICE) und `www` (Website). Werte werden zeilenweise als `KEY=VALUE` gelesen, nicht als Shell-Code ausgeführt. Unbekannte Schlüssel werden ignoriert. Bestehende `.env`-Werte sind bei erneuten Installationen die Quelle der Wahrheit.
 
 Secrets werden separat erstellt. Gib keine Passwörter in die Konfigurationsdatei ein. Für DNS-01 wird eine zusätzliche Provider-Env-Datei benötigt; sie wird als `secrets/dns.env` geschützt abgelegt.
 
@@ -20,13 +20,13 @@ sudo ./install.sh --config ./config/installation.env --path /srv/apps/feuerwehr
 
 `--dry-run` führt keine Dateierstellung, Image-Pulls oder Containerstarts aus. Er prüft Domainsyntax, Reverse-Proxy-Auswahl, Remote-IP/Ports und bei eigenem Traefik belegte Ports. Docker-Netzwerk- und Hostchecks werden bei einer regulären Installation durchgeführt. `--no-start` bereitet die Stackdateien vor und lässt die eigentliche Diensteausführung aus.
 
-Vor der ersten Änderung zeigt der Installer Pfad, aktive Dienste, Proxy-Modus und Matrix-Federation und verlangt Bestätigung. `--yes` überspringt nur diese Bestätigung; es deaktiviert keine Validierungen.
+Vor der ersten Änderung zeigt der Installer Pfad, aktive Dienste, die DNS-Namen der ausgewählten Apps, Proxy-Modus und Matrix-Federation und verlangt Bestätigung. Lege die angezeigten DNS-Einträge vorher beim DNS-Anbieter an; der Installer konfiguriert keine DNS-Zone. `--yes` überspringt nur diese Bestätigung; es deaktiviert keine Validierungen.
 
 ## Erststart
 
 Der normale Installer erzeugt bei aktivem Matrix-Profil eine Synapse-Konfiguration, setzt PostgreSQL und startet anschließend den Stack. Bei `--no-start` führt ein Administrator die Schritte aus `docs/troubleshooting.md` aus und startet mit den erzeugten Compose-Dateien.
 
-Bei ausgewähltem OpenWehr prüfe vor Start den Quellcommit, den lokalen Produktionsbuild und die SMTP-Parameter. Der Stack führt Datenbankmigrationen nicht automatisch aus (`AUTORUN_ENABLED=false`). Prüfe Migrationen und führe sie anschließend gezielt mit `php artisan migrate --force` aus. Die initialen Admin-Adressen werden über `OPENWEHR_ADMIN_EMAILS` explizit konfiguriert.
+Bei ausgewähltem OpenWehr prüfe vor Start den Quellstand des Branches `extended` von `TimUx/openwehr-extended`, den lokalen Produktionsbuild und die SMTP-Parameter. Der Stack führt Datenbankmigrationen nicht automatisch aus (`AUTORUN_ENABLED=false`). Prüfe Migrationen und führe sie anschließend gezielt mit `php artisan migrate --force` aus. Die initialen Admin-Adressen werden über `OPENWEHR_ADMIN_EMAILS` explizit konfiguriert.
 
 Keycloak-Bootstrap-Zugangsdaten findest du nach Installation geschützt in `secrets/`. Das Passwort wird nicht angezeigt. Nach der ersten Anmeldung Realm, getrennte Clients, Redirect-URIs und Rollen manuell konfigurieren.
 
