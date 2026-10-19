@@ -16,7 +16,7 @@ output=$("$ROOT/install.sh" --config "$tmp/remote.env" --path "$tmp/stack" --dry
 grep -q 'Dry run complete' <<< "$output"
 grep -q 'DNS Keycloak (login): login.example.org' <<< "$output"
 grep -q 'DNS Matrix Server: matrix.example.org' <<< "$output"
-grep -q 'DNS Matrix Web-Messenger: chat.example.org' <<< "$output"
+grep -q 'DNS Matrix Web-Messenger: messenger.example.org' <<< "$output"
 if grep -q 'DNS OpenWehr' <<< "$output"; then
   echo "Installer showed a DNS record for an unselected application." >&2
   exit 1
