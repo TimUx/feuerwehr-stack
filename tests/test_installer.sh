@@ -14,6 +14,13 @@ MATRIX_SERVER_NAME=matrix.example.org
 EOF
 output=$("$ROOT/install.sh" --config "$tmp/remote.env" --path "$tmp/stack" --dry-run)
 grep -q 'Dry run complete' <<< "$output"
+grep -q 'DNS Keycloak (login): login.example.org' <<< "$output"
+grep -q 'DNS Matrix Server: matrix.example.org' <<< "$output"
+grep -q 'DNS Matrix Web-Messenger: chat.example.org' <<< "$output"
+if grep -q 'DNS OpenWehr' <<< "$output"; then
+  echo "Installer showed a DNS record for an unselected application." >&2
+  exit 1
+fi
 [[ ! -e "$tmp/stack" ]]
 if grep -Eq 'secret|password|token' <<< "$output"; then
   echo "Dry-run exposed secret-related output." >&2
@@ -46,4 +53,5 @@ ELEMENT_PORT=18090
 EOF
 legacy_output=$("$ROOT/install.sh" --config "$tmp/legacy-element.env" --path "$tmp/legacy" --dry-run)
 grep -q 'FluffyChat:     legacy-chat.example.org' <<< "$legacy_output"
+grep -q 'DNS Matrix Web-Messenger: legacy-chat.example.org' <<< "$legacy_output"
 echo "Installer dry-run, path protection, and VPN input checks passed."
