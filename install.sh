@@ -127,6 +127,49 @@ prompt() {
     values["$key"]=$default
   fi
 }
+select_apps() {
+  local app label default answer selected=
+  [[ -v "values[ENABLED_APPS]" ]] && return
+  if [[ -t 0 && "$DRY_RUN" == false ]]; then
+    for app in keycloak openwehr matrix onlyoffice grav; do
+      case "$app" in
+        keycloak) label=Keycloak; default=j ;;
+        openwehr) label=OpenWehr; default=j ;;
+        matrix) label="Matrix Synapse und FluffyChat"; default=n ;;
+        onlyoffice) label=ONLYOFFICE; default=n ;;
+        grav) label=Website; default=n ;;
+      esac
+      while true; do
+        if [[ "$default" == j ]]; then
+          read -r -p "$label installieren? [J/n] " answer
+        else
+          read -r -p "$label installieren? [j/N] " answer
+        fi
+        answer=${answer:-$default}
+        case "$answer" in
+          j|J|ja|JA|y|Y|yes|YES) selected+="${selected:+,}$app"; break ;;
+          n|N|nein|NEIN|no|NO) break ;;
+          *) printf 'Bitte mit ja oder nein antworten.\n' >&2 ;;
+        esac
+      done
+    done
+    values[ENABLED_APPS]=$selected
+  else
+    values[ENABLED_APPS]=keycloak,openwehr
+  fi
+}
+prompt_dns_host() {
+  local key=$1 label=$2 default=$3 answer
+  [[ -v "values[$key]" ]] && return
+  answer=$default
+  if [[ -n "${enabled[$app_for_dns_prompt]:-}" && -t 0 && "$DRY_RUN" == false ]]; then
+    read -r -p "$label DNS-Subdomain unter ${values[BASE_DOMAIN]} [$default]: " answer
+    answer=${answer:-$default}
+    [[ "$answer" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$ ]] ||
+      fail "Invalid DNS subdomain label for $key"
+  fi
+  values["$key"]="${answer}.${values[BASE_DOMAIN]}"
+}
 require_value() {
   local key=$1 prompt_text=$2 answer
   [[ -n "${values[$key]}" ]] && return
@@ -137,25 +180,18 @@ require_value() {
   [[ -n "${values[$key]}" ]] || fail "$key is required for the selected installation mode"
 }
 
-prompt BASE_DOMAIN "Basisdomain" feuerwehr.example.de
+prompt BASE_DOMAIN "Primäre Domain (inklusive Endung)" feuerwehr.example.de
+select_apps
 prompt ACME_EMAIL "Let's Encrypt E-Mail-Adresse" admin@example.de
 prompt PROXY_MODE "Reverse-Proxy-Modus (own/same-host/remote)" own
-prompt ENABLED_APPS "Aktive Anwendungen (keycloak,openwehr,matrix,onlyoffice,grav)" keycloak,openwehr
 prompt ENABLE_PROXY_ROUTES "Proxy-Routen aktivieren (true/false)" true
 prompt TRAEFIK_NETWORK "Vorhandenes Traefik-Docker-Netzwerk" ""
 prompt TRAEFIK_CERT_RESOLVER "Zertifikatsresolver des vorhandenen Traefik" ""
 prompt ACME_CHALLENGE "Let's Encrypt Challenge (http/dns)" http
 prompt ACME_DNS_PROVIDER "Traefik DNS-Provider (nur DNS-01)" ""
 prompt ACME_DNS_ENV_FILE "Provider-Variablen-Datei für DNS-01" ""
-prompt MATRIX_SERVER_NAME "Matrix Server-Name (Federation)" matrix.feuerwehr.example.de
 prompt MATRIX_FEDERATION "Matrix Federation aktivieren (true/false)" false
 prompt VPN_BACKEND_IP "VPN-IP des Backend-Hosts (Remote-Modus)" ""
-prompt KEYCLOAK_HOST "Keycloak-Subdomain" "id.${values[BASE_DOMAIN]}"
-prompt OPENWEHR_HOST "OpenWehr-Subdomain" "wehr.${values[BASE_DOMAIN]}"
-prompt MATRIX_HOST "Matrix-API-Subdomain" "matrix.${values[BASE_DOMAIN]}"
-prompt FLUFFYCHAT_HOST "FluffyChat-Subdomain" "chat.${values[BASE_DOMAIN]}"
-prompt ONLYOFFICE_HOST "ONLYOFFICE-Subdomain" "docs.${values[BASE_DOMAIN]}"
-prompt GRAV_HOST "GRAV-Subdomain" "www.${values[BASE_DOMAIN]}"
 prompt KEYCLOAK_ADMIN_USER "Initialer Keycloak-Administrator" kcadmin
 prompt OPENWEHR_SOURCE "OpenWehr-Quellverzeichnis (nur wenn ausgewählt)" ""
 prompt OPENWEHR_ADMIN_EMAILS "Initiale OpenWehr-Administrator-E-Mail(s), kommagetrennt" ""
@@ -165,6 +201,28 @@ prompt MAIL_USERNAME "SMTP-Benutzername" ""
 prompt MAIL_ENCRYPTION "SMTP-Verschlüsselung (tls/ssl/leer)" tls
 prompt MAIL_FROM_ADDRESS "Absenderadresse für OpenWehr" ""
 prompt MAIL_FROM_NAME "Absendername für OpenWehr" Feuerwehr
+
+IFS=',' read -r -a apps <<< "${values[ENABLED_APPS]}"
+declare -A enabled=()
+for app in "${apps[@]}"; do
+  case "$app" in keycloak|openwehr|matrix|onlyoffice|grav) ;; *) fail "Unknown application: $app";; esac
+  [[ -z "${enabled[$app]:-}" ]] || fail "Duplicate application: $app"
+  enabled["$app"]=1
+done
+[[ ${#enabled[@]} -gt 0 ]] || fail "Select at least one application"
+
+app_for_dns_prompt=keycloak
+prompt_dns_host KEYCLOAK_HOST "Keycloak (login)" login
+app_for_dns_prompt=openwehr
+prompt_dns_host OPENWEHR_HOST "OpenWehr (portal)" portal
+app_for_dns_prompt=matrix
+prompt_dns_host MATRIX_HOST "Matrix Server" matrix
+prompt_dns_host FLUFFYCHAT_HOST "Matrix Web-Messenger" messenger
+app_for_dns_prompt=onlyoffice
+prompt_dns_host ONLYOFFICE_HOST "ONLYOFFICE" docs
+app_for_dns_prompt=grav
+prompt_dns_host GRAV_HOST "Website" www
+prompt MATRIX_SERVER_NAME "Matrix Server-Name (Federation)" "${values[MATRIX_HOST]}"
 
 if [[ "${values[PROXY_MODE]}" == same-host ]]; then
   require_value TRAEFIK_NETWORK "Name des bereits vorhandenen Traefik-Docker-Netzwerks"
@@ -225,15 +283,6 @@ if [[ "${values[ACME_CHALLENGE]}" == dns ]]; then
   [[ "${values[ACME_DNS_PROVIDER]}" =~ ^[a-z0-9]+$ ]] || fail "DNS-01 requires a valid Traefik DNS provider"
   DNS_ENV_FILE=${DNS_ENV_FILE:-${values[ACME_DNS_ENV_FILE]}}
 fi
-
-IFS=',' read -r -a apps <<< "${values[ENABLED_APPS]}"
-declare -A enabled=()
-for app in "${apps[@]}"; do
-  case "$app" in keycloak|openwehr|matrix|onlyoffice|grav) ;; *) fail "Unknown application: $app";; esac
-  [[ -z "${enabled[$app]:-}" ]] || fail "Duplicate application: $app"
-  enabled["$app"]=1
-done
-[[ ${#enabled[@]} -gt 0 ]] || fail "Select at least one application"
 
 if [[ "${values[PROXY_MODE]}" == remote ]]; then
   [[ "${values[VPN_BACKEND_IP]}" =~ ^[0-9]+(\.[0-9]+){3}$ ]] || fail "Remote mode requires an IPv4 VPN_BACKEND_IP"
@@ -386,6 +435,22 @@ Installation summary
   Matrix server:  ${values[MATRIX_SERVER_NAME]} (federation: ${values[MATRIX_FEDERATION]})
   Start services: $start_services
 EOF
+if [[ -n "${enabled[keycloak]:-}" ]]; then
+  printf '  DNS Keycloak (login): %s\n' "${values[KEYCLOAK_HOST]}"
+fi
+if [[ -n "${enabled[openwehr]:-}" ]]; then
+  printf '  DNS OpenWehr (portal): %s\n' "${values[OPENWEHR_HOST]}"
+fi
+if [[ -n "${enabled[matrix]:-}" ]]; then
+  printf '  DNS Matrix Server: %s\n  DNS Matrix Web-Messenger: %s\n' \
+    "${values[MATRIX_HOST]}" "${values[FLUFFYCHAT_HOST]}"
+fi
+if [[ -n "${enabled[onlyoffice]:-}" ]]; then
+  printf '  DNS ONLYOFFICE: %s\n' "${values[ONLYOFFICE_HOST]}"
+fi
+if [[ -n "${enabled[grav]:-}" ]]; then
+  printf '  DNS Website (www): %s\n' "${values[GRAV_HOST]}"
+fi
 
 if [[ "$DRY_RUN" == true ]]; then
   info "Dry run complete; no files or services were changed."
@@ -460,7 +525,7 @@ if [[ -n "${enabled[openwehr]:-}" && ! -f "$INSTALL_PATH/openwehr/source/Dockerf
     command -v git >/dev/null || fail "Git is required to fetch the pinned OpenWehr source"
     git -C "$INSTALL_PATH/openwehr/source" init -q
     git -C "$INSTALL_PATH/openwehr/source" fetch --depth 1 \
-      https://github.com/roberteinsle/openwehr.git 8841840042be95ccd6d794067d8dd1f05b30b67c
+      https://github.com/TimUx/openwehr-extended.git refs/heads/extended
     git -C "$INSTALL_PATH/openwehr/source" checkout --detach -q FETCH_HEAD
     rm -rf -- "$INSTALL_PATH/openwehr/source/.git"
   fi
