@@ -21,5 +21,5 @@ SQL
 }
 
 create_role_and_database keycloak keycloak "$KEYCLOAK_DB_PASSWORD_FILE"
-create_role_and_database openwehr openwehr "$OPENWEHR_DB_PASSWORD_FILE"
+create_role_and_database wehrportal wehrportal "$WEHRPORTAL_DB_PASSWORD_FILE"
 create_role_and_database synapse synapse "$SYNAPSE_DB_PASSWORD_FILE"

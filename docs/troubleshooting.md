@@ -10,13 +10,13 @@ sudo docker compose --project-directory "$PWD" -f compose.yml config
 
 Prüfe, ob `compose.proxy.yml` bzw. `compose.remote.yml` generiert wurde, ob `STACK_ROOT` in `.env` stimmt und ob alle Secret-Dateien existieren. Config-Dateien werden nicht automatisch aus untrusted Shell-Syntax ausgewertet.
 
-## OpenWehr startet nicht
+## WehrPortal startet nicht
 
-- Prüfe, ob der Quellcode unter `openwehr/source/Dockerfile` liegt und den erwarteten Commit enthält.
+- Prüfe, ob `.env` einen veröffentlichten festen `WEHRPORTAL_IMAGE_TAG` enthält und `docker manifest inspect ghcr.io/timux/wehrportal:<Tag>` erfolgreich ist.
 - `APP_KEY`, `DB_PASSWORD`, `MAIL_PASSWORD` werden beim Containerstart aus Secrets geladen.
-- Der erste Datenbank-Schema-Stand wird nicht automatisch migriert. Migrationen vor `php artisan migrate --force` prüfen.
+- PostgreSQL muss gesund sein; WehrPortal führt Migrationen und Scheduler im Produktionscontainer selbst aus.
 - Magic-Link-Anmeldung benötigt erreichbares SMTP. Konfiguration in `.env`, Passwort in `secrets/mail_smtp_password`.
-- Logs mit `sudo docker compose logs openwehr openwehr-worker` prüfen. Scheduler läuft im Upstream-PHP-Image.
+- Logs mit `sudo docker compose logs wehrportal wehrportal-worker` prüfen.
 
 ## Synapse startet nicht
 

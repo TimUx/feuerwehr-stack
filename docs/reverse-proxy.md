@@ -5,7 +5,7 @@
 | Dienst | Hostname-Schlüssel | Interner Backend-Port |
 | --- | --- | ---: |
 | Keycloak | `KEYCLOAK_HOST` | 8080 |
-| OpenWehr | `OPENWEHR_HOST` | 8080 |
+| WehrPortal | `WEHRPORTAL_HOST` | 8080 |
 | Synapse Client-Server/Federation | `MATRIX_HOST` | 8008 |
 | FluffyChat Web | `FLUFFYCHAT_HOST` | 8080 |
 | ONLYOFFICE | `ONLYOFFICE_HOST` | 80 |

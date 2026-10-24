@@ -35,7 +35,7 @@ if ((${#stopped[@]})); then "${compose[@]}" stop "${stopped[@]}"; fi
 for app in "${selected_apps[@]}"; do
   case "$app" in
     keycloak) db=keycloak ;;
-    openwehr) db=openwehr ;;
+    wehrportal) db=wehrportal ;;
     matrix) db=synapse ;;
     *) continue ;;
   esac
