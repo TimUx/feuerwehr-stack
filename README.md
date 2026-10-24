@@ -8,30 +8,31 @@ Modularer Docker-Compose-Stack für eine einzelne Debian-/Ubuntu-Maschine. Der I
 | --- | --- |
 | Installer, Profile, sichere lokale Secrets und Compose-Konfiguration | Implementiert; Syntax- und Compose-Modelltests vorhanden |
 | Eigener Traefik, vorhandener Traefik auf demselben Docker-Host, entfernter Traefik über VPN | Konfiguration wird je Modus erzeugt; produktive DNS-/TLS-/VPN-Verbindungen hier nicht getestet |
-| PostgreSQL mit getrennten Datenbanken/Rollen | Implementiert; Datenbankstart und Migrationen müssen auf dem Zielhost geprüft werden |
+| PostgreSQL mit getrennten Datenbanken/Rollen | Implementiert; WehrPortal benötigt PostgreSQL im Betrieb und führt Migrationen beim Containerstart aus |
 | Keycloak | Container und Bootstrap-Zugang vorbereitet; Realm und OIDC-Clients werden bewusst manuell eingerichtet |
-| OpenWehr | Produktivmodus, Redis, Worker, Scheduler-Unterstützung, persistentes Storage und SMTP-Umgebung vorbereitet; baut den geprüften OpenWehr-Quellstand |
+| WehrPortal | Produktions-Release-Image von `ghcr.io/timux/wehrportal`, PostgreSQL, Redis, Queue-Worker, persistentes Storage und SMTP |
 | Matrix Synapse und FluffyChat Web | Synapse-Konfiguration wird beim ersten Start erzeugt und auf PostgreSQL gesetzt; Registrierung ist aus |
 | ONLYOFFICE Docs | JWT wird aus einer Secret-Datei geladen; Containerpfade folgen der offiziellen Community-Image-Dokumentation |
 | GRAV | LinuxServer-Image mit persistentem `/config`-Mount |
 
-**Noch nicht integriert bzw. nicht als funktionsfähig zugesichert:** OpenWehr-OIDC/Keycloak, Matrix-OIDC, Keycloak-SSO für GRAV, OpenWehr/ONLYOFFICE-Dokumentbearbeitung samt Save-Callbacks sowie automatische Matrix-`/.well-known`-Dateien. Die Integrationen benötigen eigene Änderungen und Tests. OIDC-Anmeldung ersetzt nicht OpenWehrs fachliche Mitglieder- und Rechteverwaltung. Prüfe insbesondere Login, E-Mailversand, Backups, Wiederherstellung und Updatepfade vor produktiver Nutzung.
+**Noch nicht integriert bzw. nicht als funktionsfähig zugesichert:** WehrPortal-OIDC/Keycloak, Matrix-OIDC, Keycloak-SSO für GRAV, WehrPortal/ONLYOFFICE-Dokumentbearbeitung samt Save-Callbacks sowie automatische Matrix-`/.well-known`-Dateien. Die Integrationen benötigen eigene Änderungen und Tests. OIDC-Anmeldung ersetzt nicht WehrPortals fachliche Mitglieder- und Rechteverwaltung. Prüfe insbesondere Login, E-Mailversand, Backups, Wiederherstellung und Updatepfade vor produktiver Nutzung.
 
-Die Repository-Tests starten keine Container und testen keine externen Dienste. Auf diesem Host wurden ShellCheck, Bash-/Python-Syntax, Dry-Run-/Eingabetests sowie `docker compose config` für alle Proxy-Modi ausgeführt. Die tatsächliche Installation, Image-Pulls, Container-Healthchecks und Anwendungsmigrationen wurden nicht ausgeführt.
+Die Repository-Tests starten keine Container und testen keine externen Dienste. Die tatsächliche Installation, Image-Pulls, Container-Healthchecks und Anwendungsmigrationen wurden nicht ausgeführt.
 
 ## Voraussetzungen
 
 - Unterstütztes Betriebssystem laut Installer: Debian, Ubuntu oder Raspbian; Docker Engine und Docker Compose Plugin v2 müssen bereits installiert und erreichbar sein. Der Installer installiert Docker nicht.
 - Root-Rechte (`sudo`) für Installation und Host-Verzeichnisse.
+- Für WehrPortal zusätzlich `curl` und Python 3 zur Release-Prüfung; der Online-Einzeiler benötigt `curl` und `tar`.
 - Mindestens 5 GiB freier Speicher; bei ausgewähltem ONLYOFFICE mindestens 8 GiB. ONLYOFFICE empfiehlt außerdem mindestens 4 GiB RAM.
 - DNS-Einträge für alle aktivierten Anwendungen. Beim eigenen Traefik müssen TCP 80 und 443 öffentlich zum Host führen.
-- Für OpenWehr: SMTP-Zugangsdaten. Der Installer lädt standardmäßig den festgelegten OpenWehr-Quellcommit von GitHub, wenn kein Quellverzeichnis angegeben wird.
+- Für WehrPortal: SMTP-Zugangsdaten. Der Installer ermittelt das neueste GitHub-Release und prüft, ob das dazugehörige GHCR-Image verfügbar ist. Er speichert anschließend den konkreten Versionstag in `.env`; ein nicht veröffentlichtes Image führt zum Abbruch.
 
 Lege vorab beispielsweise folgende DNS-Einträge an (nur aktivierte Dienste sind erforderlich; alle zeigen auf den Reverse Proxy):
 
 ```text
 login.feuerwehr.example.de    -> Reverse Proxy (Keycloak)
-portal.feuerwehr.example.de   -> Reverse Proxy (OpenWehr)
+portal.feuerwehr.example.de   -> Reverse Proxy (WehrPortal)
 matrix.feuerwehr.example.de   -> Reverse Proxy
 messenger.feuerwehr.example.de -> Reverse Proxy (FluffyChat Web)
 docs.feuerwehr.example.de     -> Reverse Proxy
@@ -40,8 +41,16 @@ www.feuerwehr.example.de      -> Reverse Proxy
 
 ## Installation
 
+### Installation direkt aus der Konsole
+
+Der folgende Einzeiler lädt zuerst das vollständige Stack-Archiv herunter und startet erst nach erfolgreichem Download den interaktiven Installer. Eingaben bleiben interaktiv; bei Download- oder Entpackfehlern wird kein Skript ausgeführt:
+
+```bash
+bash -c 'set -Eeuo pipefail; tmp=$(mktemp -d); trap '\''rm -rf -- "$tmp"'\'' EXIT; curl --fail --location --silent --show-error https://codeload.github.com/TimUx/feuerwehr-stack/tar.gz/refs/heads/main --output "$tmp/stack.tar.gz"; tar -xzf "$tmp/stack.tar.gz" -C "$tmp"; sudo "$tmp/feuerwehr-stack-main/install.sh"'
+```
+
 1. Repository auf den Zielhost übertragen und `config/installation.env.example` kopieren und anpassen. Konfigurationsdateien enthalten keine Passwörter.
-2. Gewünschte Anwendungen im Schlüssel `ENABLED_APPS` angeben: `keycloak`, `openwehr`, `matrix`, `onlyoffice`, `grav`. Ohne Konfigurationsdatei fragt der Installer interaktiv für jede Anwendung nach, ob sie installiert werden soll.
+2. Gewünschte Anwendungen im Schlüssel `ENABLED_APPS` angeben: `keycloak`, `wehrportal`, `matrix`, `onlyoffice`, `grav`. Ohne Konfigurationsdatei fragt der Installer interaktiv für jede Anwendung nach, ob sie installiert werden soll.
 3. Konfiguration prüfen:
 
    ```bash
@@ -54,18 +63,13 @@ www.feuerwehr.example.de      -> Reverse Proxy
    sudo ./install.sh --config ./config/installation.env.example
    ```
 
-   Alternativ ohne Konfigurationsdatei interaktiv: `sudo ./install.sh`. Dabei werden Primärdomain (mit Endung), App-Auswahl und je aktivierter Anwendung das DNS-Subdomain-Label abgefragt. Standardwerte sind `login` (Keycloak), `portal` (OpenWehr), `matrix` (Synapse), `messenger` (FluffyChat), `docs` (ONLYOFFICE) und `www` (Website). Für Konfigurationsdateien bleiben die `*_HOST`-Werte vollständige Domainnamen. Der Pfad kann mit `--path /anderer/pfad` überschrieben werden. `--no-start` legt Dateien und Secrets an, startet aber keine Container.
+   Alternativ ohne Konfigurationsdatei interaktiv: `sudo ./install.sh`. Dabei werden Primärdomain (mit Endung), App-Auswahl und je aktivierter Anwendung das DNS-Subdomain-Label abgefragt. Standardwerte sind `login` (Keycloak), `portal` (WehrPortal), `matrix` (Synapse), `messenger` (FluffyChat), `docs` (ONLYOFFICE) und `www` (Website). Für Konfigurationsdateien bleiben die `*_HOST`-Werte vollständige Domainnamen. Der Pfad kann mit `--path /anderer/pfad` überschrieben werden. `--no-start` legt Dateien und Secrets an, startet aber keine Container.
 
 Der Installer kontrolliert Betriebssystem-ID, Root-Rechte, Docker/Compose-Erreichbarkeit, Speicherplatz und bei eigenem Traefik die Hostports. Bei vorhandenen Traefik-Netzwerken prüft er den exakten Netzwerknamen. DNS-Auflösung wird als Warnung angezeigt, wenn `getent` verfügbar ist. Er verändert keine Docker-Netzwerke und überschreibt keine vorhandenen Secret-Dateien. Ein nicht leeres Ziel ohne Stack-`.env` wird abgelehnt.
 
-Für OpenWehr ist alternativ ein vorab ausgecheckter Quellbaum mit `Dockerfile` möglich:
+WehrPortal wird ausschließlich als verifiziertes Release-Image `ghcr.io/timux/wehrportal:vX.Y...` gestartet. Der Installer liest den aktuellen veröffentlichten Release-Tag von GitHub, prüft zusätzlich das exakt getaggte Image in GHCR und schreibt den festen Tag in `.env`. Gibt es kein Release oder kein dazugehöriges Image, bricht die Installation vor Änderungen am Host ab. Es gibt keinen `latest`-, Quellcode- oder Fremd-Repository-Fallback. Updates behalten den festgeschriebenen Tag, bis er bewusst geändert wird.
 
-```bash
-sudo ./install.sh --config ./config/installation.env.example \
-  --openwehr-source /pfad/zum/openwehr-checkout
-```
-
-Der automatische Bezug verwendet den Branch `extended` von [`TimUx/openwehr-extended`](https://github.com/TimUx/openwehr-extended). Der Stack baut daraus lokal das Image `feuerwehr/openwehr:local`; es existiert keine zugesicherte fertige OpenWehr-Registry-Integration.
+WehrPortal ist eine Neuinstallation ohne Übernahme von OpenWehr-Bestandsdaten. Ein vorhandenes Stack-Verzeichnis mit OpenWehr-Konfiguration oder PostgreSQL-Daten wird nicht überschrieben oder migriert; für WehrPortal ist ein separater, leerer Installationspfad erforderlich. Die alte Installation und ihre Daten bleiben für einen manuellen Rückweg erhalten.
 
 Bei `--no-start` müssen Synapse-Konfiguration und Dienste manuell gestartet werden. Die Matrix-Dateien werden beim normalen Installationslauf mit `docker compose run` vor dem Stack-Start erzeugt.
 
@@ -93,7 +97,7 @@ sudo ./scripts/uninstall.sh
 ├── secrets/                 # 0600, nicht versioniert
 ├── postgres/data/           # Live-DB; niemals als reguläres Backup kopieren
 ├── keycloak/{providers,themes}/
-├── openwehr/{source,storage/app}/
+├── wehrportal/storage/app/
 ├── matrix/data/             # homeserver.yaml, Signaturschlüssel, Medien
 ├── fluffychat/config.json
 ├── onlyoffice/{logs,data,lib}/
@@ -103,11 +107,11 @@ sudo ./scripts/uninstall.sh
 └── backups/
 ```
 
-`.env` enthält nur Konfiguration und ist Modus `0600`. Geheimnisse werden einmalig mit `openssl rand` erzeugt und unter `secrets/` gespeichert; erneute Installationsläufe ersetzen sie nicht. Der Keycloak-Bootstrap-Administrator ist `KEYCLOAK_ADMIN_USER`; sein initiales Passwort liegt in `secrets/keycloak_admin_password`. Es wird absichtlich nicht im Terminal ausgegeben. Das leere `secrets/mail_smtp_password` muss bei OpenWehr mit dem SMTP-Passwort befüllt werden.
+`.env` enthält nur Konfiguration und ist Modus `0600`. Geheimnisse werden einmalig mit `openssl rand` erzeugt und unter `secrets/` gespeichert; erneute Installationsläufe ersetzen sie nicht. Ein vorhandener WehrPortal-`APP_KEY` in `secrets/wehrportal_app_key` bleibt unverändert. Der Keycloak-Bootstrap-Administrator ist `KEYCLOAK_ADMIN_USER`; sein initiales Passwort liegt in `secrets/keycloak_admin_password`. Es wird absichtlich nicht im Terminal ausgegeben. Das leere `secrets/mail_smtp_password` muss bei WehrPortal mit dem SMTP-Passwort befüllt werden.
 
 Compose-Dateisecrets sind auf einem einzelnen Docker-Host schreibgeschützte Datei-Mounts, aber keine verschlüsselten Swarm-Secrets. Docker-Daemon-Administratoren und Host-root können sie lesen. Passwörter, Matrix-Datenbankverbindung und JWT werden beim jeweiligen Containerstart in dessen Prozessumgebung geladen. Schütze daher den Host, Docker-Daemon und Backupzugriff.
 
-Der Installer setzt Besitzerrechte nur für leere Datenverzeichnisse (PostgreSQL 70, Synapse 991, Keycloak/OpenWehr/GRAV 1000). Ändere diese Rechte nicht blind bei bestehenden Daten; prüfe bei Imagewechseln die tatsächliche UID/GID.
+Der Installer setzt Besitzerrechte nur für leere Datenverzeichnisse (PostgreSQL 70, Synapse 991, WehrPortal 82, Keycloak/GRAV 1000). Ändere diese Rechte nicht blind bei bestehenden Daten.
 
 ## Reverse-Proxy-Modi und TLS
 
@@ -123,25 +127,21 @@ DNS-01 für den eigenen Traefik benötigt den Namen eines von Traefik unterstüt
 
 ### PostgreSQL und Redis
 
-PostgreSQL `16.6-alpine` hält `keycloak`, `openwehr` und `synapse` mit getrennten Rollen. Datenbank und Rollen werden nur während der Initialisierung eines leeren Datenverzeichnisses angelegt; ein bestehender Cluster wird nicht automatisch migriert oder mit neuen Passwörtern überschrieben. PostgreSQL ist nicht am Host veröffentlicht.
+PostgreSQL `16.6-alpine` hält `keycloak`, `wehrportal` und `synapse` mit getrennten Rollen. Datenbank und Rollen werden nur während der Initialisierung eines leeren Datenverzeichnisses angelegt; ein bestehender Cluster wird nicht automatisch migriert oder mit neuen Passwörtern überschrieben. PostgreSQL ist für WehrPortal zwingend erforderlich und nicht am Host veröffentlicht.
 
-Redis `7.4.2-alpine` dient OpenWehr als Cache und Queue, nicht als fachliche Datenbank. Es ist intern und nicht persistent: Cache-Inhalte und noch nicht verarbeitete Queue-Jobs können bei Redis-Neustart verloren gehen.
+Redis `7.4.2-alpine` dient WehrPortal als Cache und Queue, nicht als fachliche Datenbank. Es ist intern und nicht persistent: Cache-Inhalte und noch nicht verarbeitete Queue-Jobs können bei Redis-Neustart verloren gehen.
 
 ### Keycloak
 
-Keycloak `26.1.4` nutzt PostgreSQL und die externe HTTPS-URL aus `KEYCLOAK_HOST`. Nach dem ersten Start: anmelden, Realm und getrennte Clients für tatsächlich integrierte Anwendungen anlegen und Redirect-URIs eng begrenzen. OpenWehr-OIDC, Matrix-OIDC und GRAV-SSO sind derzeit nicht fertig integriert. Ein erfolgreicher Login darf keine fachlichen Administratorrechte implizieren.
+Keycloak `26.1.4` nutzt PostgreSQL und die externe HTTPS-URL aus `KEYCLOAK_HOST`. Nach dem ersten Start: anmelden, Realm und getrennte Clients für tatsächlich integrierte Anwendungen anlegen und Redirect-URIs eng begrenzen. WehrPortal-OIDC, Matrix-OIDC und GRAV-SSO sind derzeit nicht fertig integriert. Ein erfolgreicher Login darf keine fachlichen Administratorrechte implizieren.
 
-### OpenWehr
+### WehrPortal
 
-Der geprüfte Upstream-Stand verwendet Laravel 12/PHP 8.4, PostgreSQL, Redis für Cache/Queue und einen separaten Queue-Worker; der Scheduler ist im Upstream-Image vorgesehen. Die Upstream-Anmeldung verwendet E-Mail-Magic-Links, nicht OIDC, daher ist SMTP erforderlich. Prüfe die Upstream-Migrationen vor dem ersten Datenbankschema-Update und führe sie nach Sichtung manuell aus:
+Das veröffentlichte WehrPortal-Release-Image verwendet Laravel 12/PHP 8.4, PostgreSQL und Redis für Cache/Queue. Der Stack betreibt einen separaten Queue-Worker; Migrationen und Scheduler werden vom Produktionscontainer beim Start ausgeführt. Die Anmeldung verwendet E-Mail-Magic-Links, nicht OIDC, daher ist SMTP erforderlich.
 
-```bash
-sudo docker compose exec openwehr php artisan migrate --force
-```
+WehrPortal-OIDC und ONLYOFFICE-Callbacks sind nicht implementiert. Uploads, lokale Storage-Dateien und PostgreSQL müssen gemeinsam gesichert werden.
 
-Der upstream bereitgestellte Dockerfile-Basisimage-Tag ist nicht als Digest gepinnt. Aktualisiere ihn kontrolliert und teste den Build. OpenWehr-OIDC und ONLYOFFICE-Callbacks sind nicht implementiert. Uploads, lokale Storage-Dateien und PostgreSQL müssen gemeinsam gesichert werden.
-
-`OPENWEHR_ADMIN_EMAILS` ist eine ausdrückliche Liste initialer Administrator-E-Mail-Adressen. Upstreams `app:ensure-admins` aktiviert bzw. erstellt diese Konten beim Start; halte die Liste deshalb eng und ändere sie nach Bedarf.
+`WEHRPORTAL_ADMIN_EMAILS` ist eine ausdrückliche Liste initialer Administrator-E-Mail-Adressen. WehrPortals `app:ensure-admins` aktiviert bzw. erstellt diese Konten beim Start; halte die Liste deshalb eng und ändere sie nach Bedarf.
 
 ### Matrix Synapse und FluffyChat Web
 
@@ -153,7 +153,7 @@ FluffyChat Web `v2.10.0` wird als statischer Webclient aus `ghcr.io/etkecc/fluff
 
 ### ONLYOFFICE und GRAV
 
-ONLYOFFICE Community `8.3.3.1` nutzt die offiziellen persistenten Pfade `/var/log/onlyoffice`, `/var/www/onlyoffice/Data` und `/var/lib/onlyoffice`. JWT ist aktiviert. Eine vollständige Einbindung braucht eine Anwendung, die Dokumente von außen abrufbar macht, JWT prüft und Save-Callbacks verarbeitet; das ist in OpenWehr derzeit nicht implementiert.
+ONLYOFFICE Community `8.3.3.1` nutzt die offiziellen persistenten Pfade `/var/log/onlyoffice`, `/var/www/onlyoffice/Data` und `/var/lib/onlyoffice`. JWT ist aktiviert. Eine vollständige Einbindung braucht eine Anwendung, die Dokumente von außen abrufbar macht, JWT prüft und Save-Callbacks verarbeitet; das ist in WehrPortal derzeit nicht implementiert.
 
 GRAV wird mit LinuxServer `version-1.7.48` und persistentem `/config` betrieben. Der Adminbereich ist nicht automatisch durch Keycloak geschützt. GRAV-SSO ist nicht integriert.
 
@@ -163,14 +163,14 @@ Siehe [`docs/backup-restore.md`](docs/backup-restore.md), [`docs/migration.md`](
 
 - Backup: `scripts/backup.sh` stoppt kurz die laufenden App-Container, erstellt konsistente PostgreSQL-Custom-Dumps und sichert Dateien, Konfigurationen und Secrets. Das Backup enthält Geheimnisse und ist Modus `0600`; sichere es zusätzlich verschlüsselt und extern. Redis-Daten sind nicht enthalten.
 - Restore: nur auf einem Zielsystem ausführen, dessen Daten überschrieben werden dürfen. Es wird interaktiv bestätigt und nicht automatisch während der Installation ausgelöst.
-- Update: `scripts/update.sh` sichert zuerst, zieht die im Compose festgelegten Images und baut OpenWehr neu. Tags werden nicht automatisch geändert; Datenbankmigrationen erfordern weiterhin manuelle Prüfung.
+- Update: `scripts/update.sh` sichert zuerst und zieht die in Compose festgelegten Images. WehrPortal bleibt auf dem installierten Release-Tag; Migrationen laufen beim Start des WehrPortal-Produktionscontainers.
 - Deinstallation: `scripts/uninstall.sh` entfernt standardmäßig nur Compose-Container und Stack-Netzwerke. Nur `--delete-data` plus Eingabe des exakten Pfads löscht Backups, Secrets und persistente Daten.
 
 ## Fehlerbehebung und bekannte Einschränkungen
 
 - `scripts/validate.sh` prüft Compose-Konfiguration und Dateirechte; `scripts/healthcheck.sh` zeigt Compose-Zustände.
-- OpenWehr- oder Synapse-Container starten nach `--no-start` erst, wenn Quellcode bzw. `homeserver.yaml` vorhanden sind. Fehlermeldungen und manuelle Vorbereitung: [`docs/troubleshooting.md`](docs/troubleshooting.md).
-- Der Installer prüft keine DNS-Ziel-IP gegen den Host und testet keine Registry-Erreichbarkeit vor dem Start. Er installiert auch keine Betriebssystempakete.
+- WehrPortal- und Synapse-Container starten nach `--no-start` erst, wenn ein veröffentlichtes WehrPortal-Image verfügbar ist bzw. `homeserver.yaml` vorhanden ist. Fehlermeldungen und manuelle Vorbereitung: [`docs/troubleshooting.md`](docs/troubleshooting.md).
+- Der Installer prüft keine DNS-Ziel-IP gegen den Host. Das konkrete WehrPortal-Release-Image wird vor Hoständerungen in GHCR geprüft; andere Registry-Erreichbarkeit wird nicht vorab getestet. Betriebssystempakete werden nicht installiert.
 - Matrix-Federation, OIDC, ONLYOFFICE-Dokument-Callbacks, GRAV-SSO, externe SMTP-Erreichbarkeit und Traefik-VPN-Routen benötigen separate Integrationstests.
 - Compose-Dateien verwenden feste Versions-Tags; Tags sind nicht zwangsläufig unveränderliche Image-Digests. Prüfe Images vor Produktionsupdates.
 

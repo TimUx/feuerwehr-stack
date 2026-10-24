@@ -14,7 +14,7 @@ Internet / externer Traefik
   Keycloak  Synapse   Webapps
     │         │          │
     └────── backend internal ──────┐
-                       PostgreSQL  Redis (OpenWehr)
+                       PostgreSQL  Redis (WehrPortal)
 ```
 
 Im Modus `own` hängt der eigene Traefik im Compose-Netzwerk `feuerwehr_frontend`; nur dieser Container veröffentlicht 80/443. Im `same-host`-Modus werden ausgewählte App-Container zusätzlich an das vom Betreiber angegebene externe Docker-Netzwerk angeschlossen. `remote` veröffentlicht ausgewählte Backend-Ports ausschließlich auf einer VPN-IPv4-Adresse; ein entfernter Traefik verwendet eine generierte Dynamic-Konfiguration und benötigt keinen Docker-API-Zugriff.
@@ -27,7 +27,7 @@ Alle Anwendungsdaten und Secrets liegen als Host-Bind-Mounts unter `${STACK_ROOT
 | --- | --- | --- |
 | `data` | PostgreSQL 16.6 | Gemeinsamer persistenter Cluster |
 | `keycloak` | Keycloak 26.1.4 | Datenbank `keycloak`, Rolle `keycloak` |
-| `openwehr` | OpenWehr Web, Queue-Worker, Redis | DB `openwehr`, Rolle `openwehr`; Cache/Queue in Redis |
+| `wehrportal` | WehrPortal Web, Queue-Worker, Redis | DB `wehrportal`, Rolle `wehrportal`; Cache/Queue in Redis |
 | `matrix` | Synapse, FluffyChat Web | DB `synapse`, Rolle `synapse` |
 | `onlyoffice` | ONLYOFFICE Docs Community | Eingebettete Community-Komponenten |
 | `grav` | GRAV CMS | Dateibasierte Inhalte unter `/config` |
@@ -37,12 +37,12 @@ Der Installer erzeugt `COMPOSE_PROFILES` anhand der Auswahl. Gemeinsame Datenban
 
 ## Identität und Anwendung
 
-Keycloak ist als zentraler IdP vorgesehen, aber OIDC-Konfigurationen werden nicht automatisch erzeugt. OpenWehrs Upstream nutzt derzeit Laravel-Websessions und E-Mail-Magic-Links. Matrix-SSO, GRAV-SSO und Dokumentbearbeitungs-Callbacks erfordern separate Integration und Tests. Fachliche OpenWehr-Berechtigungen verbleiben in OpenWehr.
+Keycloak ist als zentraler IdP vorgesehen, aber OIDC-Konfigurationen werden nicht automatisch erzeugt. WehrPortal nutzt Laravel-Websessions und E-Mail-Magic-Links. WehrPortal-OIDC, Matrix-SSO, GRAV-SSO und Dokumentbearbeitungs-Callbacks erfordern separate Integration und Tests.
 
 ## Persistenz
 
 - PostgreSQL: `${STACK_ROOT}/postgres/data`
-- OpenWehr: Quellbaum `${STACK_ROOT}/openwehr/source`, persistentes Laravel-Storage `openwehr/storage/app`
+- WehrPortal: persistentes Storage unter `${STACK_ROOT}/wehrportal/storage/app`
 - Synapse: `${STACK_ROOT}/matrix/data` einschließlich Konfiguration, Schlüsseln und Medien
 - ONLYOFFICE: `onlyoffice/{logs,data,lib}`
 - GRAV: `grav/config`

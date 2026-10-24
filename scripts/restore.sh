@@ -19,7 +19,7 @@ tar --no-same-owner -xzf "$archive" -C "$staging"
    -f "$staging/manifest.txt" && ! -L "$staging/manifest.txt" &&
    -d "$staging/database" && ! -L "$staging/database" ]] ||
   { echo "Invalid backup archive." >&2; exit 1; }
-for db in keycloak openwehr synapse; do
+for db in keycloak wehrportal synapse; do
   dump="$staging/database/$db.dump"
   [[ ! -e "$dump" || (-f "$dump" && ! -L "$dump") ]] ||
     { echo "Unsafe database dump: $db" >&2; exit 1; }
@@ -70,7 +70,7 @@ IFS=',' read -r -a selected_apps <<< "$apps"
 for app in "${selected_apps[@]}"; do
   case "$app" in
     keycloak) db=keycloak; role=keycloak ;;
-    openwehr) db=openwehr; role=openwehr ;;
+    wehrportal) db=wehrportal; role=wehrportal ;;
     matrix) db=synapse; role=synapse ;;
     *) continue ;;
   esac

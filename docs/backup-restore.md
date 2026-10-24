@@ -8,7 +8,7 @@ sudo /srv/apps/feuerwehr/scripts/backup.sh
 
 Das Skript stoppt kurz alle laufenden Anwendungscontainer (PostgreSQL, Redis und Traefik bleiben verfügbar), erstellt pro aktivierter App einen PostgreSQL-Custom-Dump und sichert Konfiguration, Secrets und Anwendungsdateien. Danach werden zuvor laufende Anwendungen wieder gestartet. Bei einem Fehler versucht ein Exit-Trap, gestoppte Dienste wieder zu starten.
 
-Der Live-Pfad `postgres/data` wird ausdrücklich nicht kopiert. PostgreSQL-Dumps werden mit `pg_dump` erstellt; Keycloak, OpenWehr und Synapse werden bei Bedarf getrennt gesichert. Archive werden mit Modus `0600` unter `backups/` abgelegt und enthalten Secrets. Kopiere sie anschließend verschlüsselt an einen getrennten Ort.
+Der Live-Pfad `postgres/data` wird ausdrücklich nicht kopiert. PostgreSQL-Dumps werden mit `pg_dump` erstellt; Keycloak, WehrPortal und Synapse werden bei Bedarf getrennt gesichert. Archive werden mit Modus `0600` unter `backups/` abgelegt und enthalten Secrets. Kopiere sie anschließend verschlüsselt an einen getrennten Ort.
 
 Redis ist Cache/Queue und wird nicht gesichert. Noch nicht verarbeitete Redis-Jobs können verloren gehen. Prüfe, dass diese Jobs in deiner Installation wiederholbar sind.
 
@@ -23,7 +23,7 @@ sudo /srv/apps/feuerwehr/scripts/restore.sh \
 
 Das Skript stoppt den Stack und überschreibt Konfiguration und Anwendungsdateien nach expliziter Eingabe `RESTORE`. Es startet PostgreSQL, synchronisiert Rollenpasswörter aus wiederhergestellten Secret-Dateien und restauriert aktivierte App-Datenbanken. Es kopiert keine PostgreSQL-Datendateien.
 
-Prüfe anschließend Container-Health, Keycloak-Login, OpenWehr-Migrationen und Mail, Matrix-Login/Medien, ONLYOFFICE-Verfügbarkeit sowie GRAV-Inhalte. Ein erfolgreicher `pg_restore` ist kein Anwendungstest.
+Prüfe anschließend Container-Health, Keycloak-Login, WehrPortal-Login und Mail, Matrix-Login/Medien, ONLYOFFICE-Verfügbarkeit sowie GRAV-Inhalte. Ein erfolgreicher `pg_restore` ist kein Anwendungstest.
 
 ## Backup-Restore-Test
 

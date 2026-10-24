@@ -10,12 +10,12 @@ services:
       POSTGRES_DB: postgres
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_superuser_password
       KEYCLOAK_DB_PASSWORD_FILE: /run/secrets/keycloak_db_password
-      OPENWEHR_DB_PASSWORD_FILE: /run/secrets/openwehr_db_password
+      WEHRPORTAL_DB_PASSWORD_FILE: /run/secrets/wehrportal_db_password
       SYNAPSE_DB_PASSWORD_FILE: /run/secrets/synapse_db_password
     secrets:
       - postgres_superuser_password
       - keycloak_db_password
-      - openwehr_db_password
+      - wehrportal_db_password
       - synapse_db_password
     volumes:
       - ${STACK_ROOT:?Set STACK_ROOT}/postgres/data:/var/lib/postgresql/data
@@ -32,7 +32,7 @@ services:
 
   redis:
     image: redis:7.4.2-alpine
-    profiles: [openwehr]
+    profiles: [wehrportal]
     restart: unless-stopped
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     networks: [backend]
@@ -79,34 +79,34 @@ services:
       start_period: 90s
     security_opt: ["no-new-privileges:true"]
 
-  openwehr:
-    image: feuerwehr/openwehr:local
-    build:
-      context: ${STACK_ROOT}/openwehr/source
-      dockerfile: Dockerfile
-    profiles: [openwehr]
+  wehrportal:
+    image: ghcr.io/timux/wehrportal:${WEHRPORTAL_IMAGE_TAG:-UNCONFIGURED}
+    profiles: [wehrportal]
     restart: unless-stopped
     environment:
-      APP_NAME: OpenWehr
+      APP_NAME: WehrPortal
       APP_ENV: production
       APP_DEBUG: "false"
-      ADMIN_EMAILS: ${OPENWEHR_ADMIN_EMAILS:-}
-      APP_URL: https://${OPENWEHR_HOST:?Set OPENWEHR_HOST}
-      AUTORUN_ENABLED: "false"
+      ADMIN_EMAILS: ${WEHRPORTAL_ADMIN_EMAILS:-}
+      APP_URL: https://${WEHRPORTAL_HOST:?Set WEHRPORTAL_HOST}
+      AUTORUN_ENABLED: "true"
       APP_TIMEZONE: Europe/Berlin
       APP_LOCALE: de
       DB_CONNECTION: pgsql
       DB_HOST: postgres
       DB_PORT: "5432"
-      DB_DATABASE: openwehr
-      DB_USERNAME: openwehr
+      DB_DATABASE: wehrportal
+      DB_USERNAME: wehrportal
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       LOG_CHANNEL: stderr
       CACHE_STORE: redis
       QUEUE_CONNECTION: redis
       SESSION_DRIVER: database
+      SESSION_COOKIE: wehrportal-session
       SESSION_SECURE_COOKIE: "true"
+      CACHE_PREFIX: wehrportal-cache-
+      REDIS_PREFIX: wehrportal-database-
       MAGIC_LINK_TTL_MINUTES: "15"
       MAIL_MAILER: ${MAIL_MAILER:-smtp}
       MAIL_HOST: ${MAIL_HOST:-}
@@ -116,11 +116,11 @@ services:
       MAIL_PASSWORD_FILE: /run/secrets/mail_smtp_password
       MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-}
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Feuerwehr}
-    entrypoint: ["/bin/sh", "/stack/openwehr-entrypoint.sh"]
-    secrets: [openwehr_db_password, openwehr_app_key, mail_smtp_password]
+    entrypoint: ["/bin/sh", "/stack/wehrportal-entrypoint.sh"]
+    secrets: [wehrportal_db_password, wehrportal_app_key, mail_smtp_password]
     volumes:
-      - ./scripts/openwehr-entrypoint.sh:/stack/openwehr-entrypoint.sh:ro
-      - ${STACK_ROOT}/openwehr/storage/app:/var/www/html/storage/app
+      - ./scripts/wehrportal-entrypoint.sh:/stack/wehrportal-entrypoint.sh:ro
+      - ${STACK_ROOT}/wehrportal/storage/app:/var/www/html/storage/app
     depends_on:
       postgres:
         condition: service_healthy
@@ -136,32 +136,34 @@ services:
       retries: 5
       start_period: 60s
 
-  openwehr-worker:
-    image: feuerwehr/openwehr:local
-    build:
-      context: ${STACK_ROOT}/openwehr/source
-      dockerfile: Dockerfile
-    profiles: [openwehr]
+  wehrportal-worker:
+    image: ghcr.io/timux/wehrportal:${WEHRPORTAL_IMAGE_TAG:-UNCONFIGURED}
+    profiles: [wehrportal]
     restart: unless-stopped
     environment:
       APP_ENV: production
       APP_DEBUG: "false"
-      ADMIN_EMAILS: ${OPENWEHR_ADMIN_EMAILS:-}
+      ADMIN_EMAILS: ${WEHRPORTAL_ADMIN_EMAILS:-}
+      APP_NAME: WehrPortal
+      APP_URL: https://${WEHRPORTAL_HOST:?Set WEHRPORTAL_HOST}
       AUTORUN_ENABLED: "false"
       APP_TIMEZONE: Europe/Berlin
       APP_LOCALE: de
       DB_CONNECTION: pgsql
       DB_HOST: postgres
       DB_PORT: "5432"
-      DB_DATABASE: openwehr
-      DB_USERNAME: openwehr
+      DB_DATABASE: wehrportal
+      DB_USERNAME: wehrportal
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       LOG_CHANNEL: stderr
       CACHE_STORE: redis
       QUEUE_CONNECTION: redis
       SESSION_DRIVER: database
+      SESSION_COOKIE: wehrportal-session
       MAGIC_LINK_TTL_MINUTES: "15"
+      CACHE_PREFIX: wehrportal-cache-
+      REDIS_PREFIX: wehrportal-database-
       MAIL_MAILER: ${MAIL_MAILER:-smtp}
       MAIL_HOST: ${MAIL_HOST:-}
       MAIL_PORT: ${MAIL_PORT:-587}
@@ -170,14 +172,14 @@ services:
       MAIL_PASSWORD_FILE: /run/secrets/mail_smtp_password
       MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-}
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Feuerwehr}
-    entrypoint: ["/bin/sh", "/stack/openwehr-entrypoint.sh"]
-    secrets: [openwehr_db_password, openwehr_app_key, mail_smtp_password]
+    entrypoint: ["/bin/sh", "/stack/wehrportal-entrypoint.sh"]
+    secrets: [wehrportal_db_password, wehrportal_app_key, mail_smtp_password]
     command: ["php", "artisan", "queue:work", "--tries=3", "--sleep=3", "--timeout=90"]
     volumes:
-      - ./scripts/openwehr-entrypoint.sh:/stack/openwehr-entrypoint.sh:ro
-      - ${STACK_ROOT}/openwehr/storage/app:/var/www/html/storage/app
+      - ./scripts/wehrportal-entrypoint.sh:/stack/wehrportal-entrypoint.sh:ro
+      - ${STACK_ROOT}/wehrportal/storage/app:/var/www/html/storage/app
     depends_on:
-      openwehr:
+      wehrportal:
         condition: service_started
       redis:
         condition: service_healthy
@@ -298,14 +300,14 @@ secrets:
     file: ${STACK_ROOT:?Set STACK_ROOT}/secrets/postgres_superuser_password
   keycloak_db_password:
     file: ${STACK_ROOT}/secrets/keycloak_db_password
-  openwehr_db_password:
-    file: ${STACK_ROOT}/secrets/openwehr_db_password
+  wehrportal_db_password:
+    file: ${STACK_ROOT}/secrets/wehrportal_db_password
   synapse_db_password:
     file: ${STACK_ROOT}/secrets/synapse_db_password
   keycloak_admin_password:
     file: ${STACK_ROOT}/secrets/keycloak_admin_password
-  openwehr_app_key:
-    file: ${STACK_ROOT}/secrets/openwehr_app_key
+  wehrportal_app_key:
+    file: ${STACK_ROOT}/secrets/wehrportal_app_key
   onlyoffice_jwt_secret:
     file: ${STACK_ROOT}/secrets/onlyoffice_jwt_secret
   mail_smtp_password:

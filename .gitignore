@@ -8,8 +8,8 @@ logs/*
 postgres/data/*
 keycloak/providers/*
 keycloak/themes/*
-openwehr/storage/*
-openwehr/uploads/*
+wehrportal/storage/*
+wehrportal/uploads/*
 matrix/data/*
 fluffychat/config.json
 onlyoffice/logs/*

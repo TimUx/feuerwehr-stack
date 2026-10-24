@@ -7,7 +7,6 @@ DEFAULT_PATH=/srv/apps/feuerwehr
 INSTALL_PATH=$DEFAULT_PATH
 CONFIG_FILE=
 DNS_ENV_FILE=
-OPENWEHR_SOURCE=
 DRY_RUN=false
 NO_START=false
 ASSUME_YES=false
@@ -23,7 +22,6 @@ Usage: sudo ./install.sh [options]
 Options:
   --path PATH              Installation root (default: /srv/apps/feuerwehr)
   --config FILE            Read KEY=VALUE settings (never evaluated as shell)
-  --openwehr-source DIR    Copy a checked-out OpenWehr source tree
   --dns-env-file FILE      Copy protected Traefik DNS-provider environment
   --dry-run                Validate and summarize without changing the host
   --no-start               Prepare files but do not start containers
@@ -33,11 +31,11 @@ Options:
 Config keys: INSTALL_PATH, BASE_DOMAIN, ACME_EMAIL, PROXY_MODE, ENABLED_APPS,
 ENABLE_PROXY_ROUTES, TRAEFIK_NETWORK, TRAEFIK_CERT_RESOLVER, ACME_CHALLENGE,
 ACME_DNS_PROVIDER, ACME_DNS_ENV_FILE, MATRIX_SERVER_NAME, MATRIX_FEDERATION,
-VPN_BACKEND_IP, KEYCLOAK_HOST, OPENWEHR_HOST, MATRIX_HOST, FLUFFYCHAT_HOST,
-ONLYOFFICE_HOST, GRAV_HOST, KEYCLOAK_ADMIN_USER, OPENWEHR_SOURCE, MAIL_HOST,
+VPN_BACKEND_IP, KEYCLOAK_HOST, WEHRPORTAL_HOST, WEHRPORTAL_IMAGE_TAG, MATRIX_HOST, FLUFFYCHAT_HOST,
+ONLYOFFICE_HOST, GRAV_HOST, KEYCLOAK_ADMIN_USER, MAIL_HOST,
 MAIL_PORT, MAIL_USERNAME, MAIL_ENCRYPTION, MAIL_FROM_ADDRESS, MAIL_FROM_NAME,
-KEYCLOAK_PORT, OPENWEHR_PORT, MATRIX_PORT, FLUFFYCHAT_PORT, ONLYOFFICE_PORT,
-GRAV_PORT, OPENWEHR_ADMIN_EMAILS.
+KEYCLOAK_PORT, WEHRPORTAL_PORT, MATRIX_PORT, FLUFFYCHAT_PORT, ONLYOFFICE_PORT,
+GRAV_PORT, WEHRPORTAL_ADMIN_EMAILS.
 EOF
 }
 
@@ -48,7 +46,6 @@ while (($#)); do
   case "$1" in
     --path) (($# >= 2)) || fail "--path requires a value"; INSTALL_PATH=$2; PATH_EXPLICIT=true; shift 2 ;;
     --config) (($# >= 2)) || fail "--config requires a file"; CONFIG_FILE=$2; shift 2 ;;
-    --openwehr-source) (($# >= 2)) || fail "--openwehr-source requires a directory"; OPENWEHR_SOURCE=$2; shift 2 ;;
     --dns-env-file) (($# >= 2)) || fail "--dns-env-file requires a file"; DNS_ENV_FILE=$2; shift 2 ;;
     --dry-run) DRY_RUN=true; shift ;;
     --no-start) NO_START=true; shift ;;
@@ -60,10 +57,10 @@ done
 
 for key in INSTALL_PATH BASE_DOMAIN ACME_EMAIL PROXY_MODE ENABLED_APPS ENABLE_PROXY_ROUTES \
   TRAEFIK_NETWORK TRAEFIK_CERT_RESOLVER ACME_CHALLENGE ACME_DNS_PROVIDER ACME_DNS_ENV_FILE \
-  MATRIX_SERVER_NAME MATRIX_FEDERATION VPN_BACKEND_IP KEYCLOAK_HOST OPENWEHR_HOST MATRIX_HOST \
-  ELEMENT_HOST FLUFFYCHAT_HOST ONLYOFFICE_HOST GRAV_HOST KEYCLOAK_ADMIN_USER OPENWEHR_SOURCE MAIL_HOST MAIL_PORT \
-  MAIL_USERNAME MAIL_ENCRYPTION MAIL_FROM_ADDRESS MAIL_FROM_NAME KEYCLOAK_PORT OPENWEHR_PORT \
-  MATRIX_PORT ELEMENT_PORT FLUFFYCHAT_PORT ONLYOFFICE_PORT GRAV_PORT OPENWEHR_ADMIN_EMAILS; do
+  MATRIX_SERVER_NAME MATRIX_FEDERATION VPN_BACKEND_IP KEYCLOAK_HOST WEHRPORTAL_HOST WEHRPORTAL_IMAGE_TAG MATRIX_HOST \
+  ELEMENT_HOST FLUFFYCHAT_HOST ONLYOFFICE_HOST GRAV_HOST KEYCLOAK_ADMIN_USER MAIL_HOST MAIL_PORT \
+  MAIL_USERNAME MAIL_ENCRYPTION MAIL_FROM_ADDRESS MAIL_FROM_NAME KEYCLOAK_PORT WEHRPORTAL_PORT \
+  MATRIX_PORT ELEMENT_PORT FLUFFYCHAT_PORT ONLYOFFICE_PORT GRAV_PORT WEHRPORTAL_ADMIN_EMAILS; do
   allowed["$key"]=1
 done
 
@@ -102,10 +99,14 @@ INSTALL_PATH="$(realpath -m -- "$INSTALL_PATH")"
   fail "Installation path may contain only letters, digits, slash, dot, underscore, hyphen, and spaces"
 [[ ! -e "$INSTALL_PATH" || -d "$INSTALL_PATH" ]] || fail "Installation path exists and is not a directory"
 [[ ! -L "$INSTALL_PATH/.env" ]] || fail "Refusing a symlinked stack .env"
-for name in secrets postgres keycloak openwehr matrix fluffychat onlyoffice grav traefik backups logs integrations scripts; do
+for name in secrets postgres keycloak wehrportal matrix fluffychat onlyoffice grav traefik backups logs integrations scripts; do
   [[ ! -L "$INSTALL_PATH/$name" ]] || fail "Refusing symlinked installation directory: $INSTALL_PATH/$name"
 done
 
+if [[ -f "$INSTALL_PATH/.env" ]] &&
+    grep -Eq '^(OPENWEHR_|(ENABLED_APPS|COMPOSE_PROFILES)=([^,]+,)*openwehr(,|$))' "$INSTALL_PATH/.env"; then
+  fail "This path contains an OpenWehr installation. WehrPortal is a fresh installation; use a separate empty path and retain the old data for rollback."
+fi
 if [[ -f "$INSTALL_PATH/.env" ]]; then
   read_config "$INSTALL_PATH/.env"
 fi
@@ -131,10 +132,10 @@ select_apps() {
   local app label default answer selected=
   [[ -v "values[ENABLED_APPS]" ]] && return
   if [[ -t 0 && "$DRY_RUN" == false ]]; then
-    for app in keycloak openwehr matrix onlyoffice grav; do
+    for app in keycloak wehrportal matrix onlyoffice grav; do
       case "$app" in
         keycloak) label=Keycloak; default=j ;;
-        openwehr) label=OpenWehr; default=j ;;
+        wehrportal) label=WehrPortal; default=j ;;
         matrix) label="Matrix Synapse und FluffyChat"; default=n ;;
         onlyoffice) label=ONLYOFFICE; default=n ;;
         grav) label=Website; default=n ;;
@@ -155,7 +156,7 @@ select_apps() {
     done
     values[ENABLED_APPS]=$selected
   else
-    values[ENABLED_APPS]=keycloak,openwehr
+    values[ENABLED_APPS]=keycloak,wehrportal
   fi
 }
 prompt_dns_host() {
@@ -193,19 +194,18 @@ prompt ACME_DNS_ENV_FILE "Provider-Variablen-Datei für DNS-01" ""
 prompt MATRIX_FEDERATION "Matrix Federation aktivieren (true/false)" false
 prompt VPN_BACKEND_IP "VPN-IP des Backend-Hosts (Remote-Modus)" ""
 prompt KEYCLOAK_ADMIN_USER "Initialer Keycloak-Administrator" kcadmin
-prompt OPENWEHR_SOURCE "OpenWehr-Quellverzeichnis (nur wenn ausgewählt)" ""
-prompt OPENWEHR_ADMIN_EMAILS "Initiale OpenWehr-Administrator-E-Mail(s), kommagetrennt" ""
-prompt MAIL_HOST "SMTP-Server für OpenWehr (Magic-Link-Anmeldung)" ""
+prompt WEHRPORTAL_ADMIN_EMAILS "Initiale WehrPortal-Administrator-E-Mail(s), kommagetrennt" ""
+prompt MAIL_HOST "SMTP-Server für WehrPortal (Magic-Link-Anmeldung)" ""
 prompt MAIL_PORT "SMTP-Port" 587
 prompt MAIL_USERNAME "SMTP-Benutzername" ""
 prompt MAIL_ENCRYPTION "SMTP-Verschlüsselung (tls/ssl/leer)" tls
-prompt MAIL_FROM_ADDRESS "Absenderadresse für OpenWehr" ""
-prompt MAIL_FROM_NAME "Absendername für OpenWehr" Feuerwehr
+prompt MAIL_FROM_ADDRESS "Absenderadresse für WehrPortal" ""
+prompt MAIL_FROM_NAME "Absendername für WehrPortal" Feuerwehr
 
 IFS=',' read -r -a apps <<< "${values[ENABLED_APPS]}"
 declare -A enabled=()
 for app in "${apps[@]}"; do
-  case "$app" in keycloak|openwehr|matrix|onlyoffice|grav) ;; *) fail "Unknown application: $app";; esac
+  case "$app" in keycloak|wehrportal|matrix|onlyoffice|grav) ;; *) fail "Unknown application: $app";; esac
   [[ -z "${enabled[$app]:-}" ]] || fail "Duplicate application: $app"
   enabled["$app"]=1
 done
@@ -213,8 +213,8 @@ done
 
 app_for_dns_prompt=keycloak
 prompt_dns_host KEYCLOAK_HOST "Keycloak (login)" login
-app_for_dns_prompt=openwehr
-prompt_dns_host OPENWEHR_HOST "OpenWehr (portal)" portal
+app_for_dns_prompt=wehrportal
+prompt_dns_host WEHRPORTAL_HOST "WehrPortal (portal)" portal
 app_for_dns_prompt=matrix
 prompt_dns_host MATRIX_HOST "Matrix Server" matrix
 prompt_dns_host FLUFFYCHAT_HOST "Matrix Web-Messenger" messenger
@@ -239,16 +239,16 @@ if [[ "${values[PROXY_MODE]}" == own && "${values[ACME_CHALLENGE]}" == dns ]]; t
     DNS_ENV_FILE=${values[ACME_DNS_ENV_FILE]}
   fi
 fi
-if [[ -n "${values[ENABLED_APPS]}" && ",${values[ENABLED_APPS]}," == *,openwehr,* ]]; then
-  require_value MAIL_HOST "SMTP-Hostname für OpenWehr"
-  require_value MAIL_FROM_ADDRESS "Absenderadresse für OpenWehr"
-  require_value OPENWEHR_ADMIN_EMAILS "Initiale OpenWehr-Administrator-E-Mail(s), kommagetrennt"
+if [[ -n "${values[ENABLED_APPS]}" && ",${values[ENABLED_APPS]}," == *,wehrportal,* ]]; then
+  require_value MAIL_HOST "SMTP-Hostname für WehrPortal"
+  require_value MAIL_FROM_ADDRESS "Absenderadresse für WehrPortal"
+  require_value WEHRPORTAL_ADMIN_EMAILS "Initiale WehrPortal-Administrator-E-Mail(s), kommagetrennt"
 fi
 
 valid_domain() {
   [[ ${#1} -le 253 && "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$ ]]
 }
-for key in BASE_DOMAIN KEYCLOAK_HOST OPENWEHR_HOST MATRIX_HOST FLUFFYCHAT_HOST ONLYOFFICE_HOST GRAV_HOST MATRIX_SERVER_NAME; do
+for key in BASE_DOMAIN KEYCLOAK_HOST WEHRPORTAL_HOST MATRIX_HOST FLUFFYCHAT_HOST ONLYOFFICE_HOST GRAV_HOST MATRIX_SERVER_NAME; do
   valid_domain "${values[$key]}" || fail "Invalid domain: ${values[$key]}"
 done
 [[ "${values[KEYCLOAK_ADMIN_USER]}" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || fail "Invalid KEYCLOAK_ADMIN_USER"
@@ -298,11 +298,11 @@ if [[ "${values[PROXY_MODE]}" == remote ]]; then
     fail "VPN_BACKEND_IP must be an RFC1918 or shared-address private IPv4 address"
 fi
 
-for key in KEYCLOAK_PORT OPENWEHR_PORT MATRIX_PORT FLUFFYCHAT_PORT ONLYOFFICE_PORT GRAV_PORT; do
+for key in KEYCLOAK_PORT WEHRPORTAL_PORT MATRIX_PORT FLUFFYCHAT_PORT ONLYOFFICE_PORT GRAV_PORT; do
   default=18080
   case "$key" in
     KEYCLOAK_PORT) default=18084 ;;
-    OPENWEHR_PORT) default=18080 ;;
+    WEHRPORTAL_PORT) default=18080 ;;
     MATRIX_PORT) default=18008 ;;
     FLUFFYCHAT_PORT) default=18081 ;;
     ONLYOFFICE_PORT) default=18082 ;;
@@ -319,7 +319,7 @@ if [[ "${values[PROXY_MODE]}" == remote ]]; then
   for app in "${apps[@]}"; do
     case "$app" in
       keycloak) selected_ports+=("${values[KEYCLOAK_PORT]}") ;;
-      openwehr) selected_ports+=("${values[OPENWEHR_PORT]}") ;;
+      wehrportal) selected_ports+=("${values[WEHRPORTAL_PORT]}") ;;
       matrix) selected_ports+=("${values[MATRIX_PORT]}" "${values[FLUFFYCHAT_PORT]}") ;;
       onlyoffice) selected_ports+=("${values[ONLYOFFICE_PORT]}") ;;
       grav) selected_ports+=("${values[GRAV_PORT]}") ;;
@@ -329,21 +329,24 @@ if [[ "${values[PROXY_MODE]}" == remote ]]; then
     fail "Remote backend ports must be unique"
 fi
 
-if [[ -n "${enabled[openwehr]:-}" ]]; then
-  OPENWEHR_SOURCE=${OPENWEHR_SOURCE:-${values[OPENWEHR_SOURCE]:-}}
-  if [[ -z "$OPENWEHR_SOURCE" && -f "$INSTALL_PATH/openwehr/source/Dockerfile" ]]; then
-    OPENWEHR_SOURCE=$INSTALL_PATH/openwehr/source
+if [[ -n "${enabled[wehrportal]:-}" ]]; then
+  existing_wehrportal=false
+  if [[ -f "$INSTALL_PATH/.env" && -f "$INSTALL_PATH/secrets/wehrportal_app_key" ]] &&
+      grep -Eq '^ENABLED_APPS=([^,]+,)*wehrportal(,|$)' "$INSTALL_PATH/.env" &&
+      grep -Eq '^WEHRPORTAL_IMAGE_TAG=v[0-9]+\.[0-9]+(\.[0-9]+){0,2}$' "$INSTALL_PATH/.env"; then
+    existing_wehrportal=true
   fi
-  [[ -z "$OPENWEHR_SOURCE" || -f "$OPENWEHR_SOURCE/Dockerfile" ]] ||
-    fail "OpenWehr source directory has no Dockerfile: $OPENWEHR_SOURCE"
+  if [[ -f "$INSTALL_PATH/postgres/data/PG_VERSION" && "$existing_wehrportal" != true ]]; then
+    fail "Existing PostgreSQL data was found at $INSTALL_PATH/postgres/data. WehrPortal does not migrate OpenWehr data; use a separate empty installation path."
+  fi
   [[ -n "${values[MAIL_HOST]}" && -n "${values[MAIL_FROM_ADDRESS]}" ]] ||
-    fail "OpenWehr magic-link login requires MAIL_HOST and MAIL_FROM_ADDRESS"
+    fail "WehrPortal magic-link login requires MAIL_HOST and MAIL_FROM_ADDRESS"
   [[ "${values[MAIL_FROM_ADDRESS]}" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] ||
     fail "Invalid MAIL_FROM_ADDRESS"
-  IFS=',' read -r -a admin_emails <<< "${values[OPENWEHR_ADMIN_EMAILS]}"
+  IFS=',' read -r -a admin_emails <<< "${values[WEHRPORTAL_ADMIN_EMAILS]}"
   for address in "${admin_emails[@]}"; do
     [[ "$address" =~ ^[^[:space:]@,]+@[^[:space:]@,]+\.[^[:space:]@,]+$ ]] ||
-      fail "Invalid OpenWehr administrator email"
+      fail "Invalid WehrPortal administrator email"
   done
 fi
 [[ -z "$DNS_ENV_FILE" || -r "$DNS_ENV_FILE" ]] || fail "DNS provider file is not readable"
@@ -352,6 +355,28 @@ if [[ "${values[PROXY_MODE]}" == own && "${values[ACME_CHALLENGE]}" == dns && -z
   fail "DNS-01 requires --dns-env-file or an existing $INSTALL_PATH/secrets/dns.env"
 fi
 
+resolve_wehrportal_image() {
+  local tag release_url release_json
+  command -v curl >/dev/null || fail "curl is required to verify the published WehrPortal release"
+  command -v python3 >/dev/null || fail "python3 is required to read the published WehrPortal release metadata"
+  tag=${values[WEHRPORTAL_IMAGE_TAG]:-}
+  if [[ -z "$tag" ]]; then
+    release_url=https://api.github.com/repos/TimUx/WehrPortal/releases/latest
+  else
+    release_url="https://api.github.com/repos/TimUx/WehrPortal/releases/tags/$tag"
+  fi
+  release_json=$(curl --fail --silent --show-error --location \
+    --header 'Accept: application/vnd.github+json' \
+    --header 'X-GitHub-Api-Version: 2022-11-28' "$release_url") ||
+    fail "No published WehrPortal release could be verified at $release_url; refusing to use an unverified image tag."
+  tag=$(python3 -c 'import json, sys; print(json.load(sys.stdin).get("tag_name", ""))' <<< "$release_json") ||
+    fail "Could not read the WehrPortal release tag from GitHub."
+  [[ "$tag" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+){0,2}$ ]] ||
+    fail "GitHub returned an invalid WehrPortal release tag: $tag"
+  docker manifest inspect "ghcr.io/timux/wehrportal:$tag" >/dev/null 2>&1 ||
+    fail "The published WehrPortal image ghcr.io/timux/wehrportal:$tag is unavailable; no fallback image will be used."
+  values[WEHRPORTAL_IMAGE_TAG]=$tag
+}
 if [[ "${values[PROXY_MODE]}" == own ]]; then
   command -v ss >/dev/null || fail "ss is required to check ports 80 and 443"
   for port in 80 443; do
@@ -393,11 +418,14 @@ if [[ "$DRY_RUN" == false ]]; then
   [[ -z "${enabled[onlyoffice]:-}" ]] || minimum_kb=8388608
   (( available_kb >= minimum_kb )) || fail "At least $((minimum_kb / 1048576)) GiB free disk space is required"
 fi
+if [[ -n "${enabled[wehrportal]:-}" && "$DRY_RUN" == false ]]; then
+  resolve_wehrportal_image
+fi
 if [[ "${values[ENABLE_PROXY_ROUTES]}" == true ]] && command -v getent >/dev/null; then
   for app in "${apps[@]}"; do
     case "$app" in
       keycloak) host=${values[KEYCLOAK_HOST]} ;;
-      openwehr) host=${values[OPENWEHR_HOST]} ;;
+      wehrportal) host=${values[WEHRPORTAL_HOST]} ;;
       matrix) host=${values[MATRIX_HOST]} ;;
       onlyoffice) host=${values[ONLYOFFICE_HOST]} ;;
       grav) host=${values[GRAV_HOST]} ;;
@@ -416,6 +444,7 @@ for app in "${apps[@]}"; do profiles+=",${app}"; done
 values[STACK_ROOT]=$INSTALL_PATH
 values[COMPOSE_PROFILES]=$profiles
 values[ENABLED_APPS]=$(IFS=,; echo "${apps[*]}")
+values[WEHRPORTAL_IMAGE_TAG]=${values[WEHRPORTAL_IMAGE_TAG]:-}
 start_services=yes
 if [[ "$DRY_RUN" == true ]]; then
   start_services='not run (dry-run)'
@@ -438,8 +467,9 @@ EOF
 if [[ -n "${enabled[keycloak]:-}" ]]; then
   printf '  DNS Keycloak (login): %s\n' "${values[KEYCLOAK_HOST]}"
 fi
-if [[ -n "${enabled[openwehr]:-}" ]]; then
-  printf '  DNS OpenWehr (portal): %s\n' "${values[OPENWEHR_HOST]}"
+if [[ -n "${enabled[wehrportal]:-}" ]]; then
+  printf '  DNS WehrPortal (portal): %s\n  Image release:  ghcr.io/timux/wehrportal:%s\n' \
+    "${values[WEHRPORTAL_HOST]}" "${values[WEHRPORTAL_IMAGE_TAG]:-wird beim Installieren verifiziert}"
 fi
 if [[ -n "${enabled[matrix]:-}" ]]; then
   printf '  DNS Matrix Server: %s\n  DNS Matrix Web-Messenger: %s\n' \
@@ -462,22 +492,24 @@ if [[ "$ASSUME_YES" != true ]]; then
 fi
 
 install -d -m 0750 "$INSTALL_PATH"
-install -d -m 0750 "$INSTALL_PATH"/{secrets,postgres/data,keycloak/providers,keycloak/themes,openwehr/source,openwehr/storage/app,matrix/data,fluffychat,onlyoffice/logs,onlyoffice/data,onlyoffice/lib,grav/config,traefik/acme,backups,logs,integrations/traefik}
+install -d -m 0750 "$INSTALL_PATH"/{secrets,postgres/data,keycloak/providers,keycloak/themes,wehrportal/storage/app,matrix/data,fluffychat,onlyoffice/logs,onlyoffice/data,onlyoffice/lib,grav/config,traefik/acme,backups,logs,integrations/traefik}
 chmod 0750 "$INSTALL_PATH"
 chmod 0700 "$INSTALL_PATH/secrets" "$INSTALL_PATH/backups"
-for name in postgres postgres/data keycloak keycloak/providers keycloak/themes openwehr openwehr/source \
-  openwehr/storage openwehr/storage/app matrix matrix/data fluffychat onlyoffice onlyoffice/logs onlyoffice/data \
+for name in postgres postgres/data keycloak keycloak/providers keycloak/themes wehrportal \
+  wehrportal/storage wehrportal/storage/app matrix matrix/data fluffychat onlyoffice onlyoffice/logs onlyoffice/data \
   onlyoffice/lib grav grav/config traefik traefik/acme logs integrations integrations/traefik; do
   [[ ! -L "$INSTALL_PATH/$name" ]] || fail "Refusing symlinked installation directory: $INSTALL_PATH/$name"
   chmod 0750 "$INSTALL_PATH/$name"
 done
 install -d -m 0750 "$INSTALL_PATH/scripts"
-for file in compose.yml scripts/postgres-init.sh scripts/keycloak-entrypoint.sh scripts/openwehr-entrypoint.sh \
-  scripts/onlyoffice-entrypoint.sh scripts/generate-proxy-config.sh scripts/configure-synapse.py; do
+for file in compose.yml scripts/postgres-init.sh scripts/keycloak-entrypoint.sh scripts/wehrportal-entrypoint.sh \
+  scripts/onlyoffice-entrypoint.sh scripts/generate-proxy-config.sh scripts/configure-synapse.py \
+  scripts/backup.sh scripts/restore.sh scripts/update.sh scripts/healthcheck.sh scripts/validate.sh \
+  scripts/uninstall.sh; do
   [[ -e "$INSTALL_PATH/$file" ]] || install -m 0644 "$SCRIPT_DIR/$file" "$INSTALL_PATH/$file"
 done
 chmod 0750 "$INSTALL_PATH"/scripts/*.sh
-for name in postgres_superuser_password keycloak_db_password openwehr_db_password synapse_db_password \
+for name in postgres_superuser_password keycloak_db_password wehrportal_db_password synapse_db_password \
   keycloak_admin_password onlyoffice_jwt_secret; do
   [[ ! -L "$INSTALL_PATH/secrets/$name" ]] || fail "Refusing symlinked secret file: $name"
   if [[ -e "$INSTALL_PATH/secrets/$name" ]]; then
@@ -487,20 +519,25 @@ for name in postgres_superuser_password keycloak_db_password openwehr_db_passwor
   fi
   chmod 0600 "$INSTALL_PATH/secrets/$name"
 done
-[[ ! -L "$INSTALL_PATH/secrets/openwehr_app_key" ]] || fail "Refusing symlinked OpenWehr app key"
-if [[ ! -e "$INSTALL_PATH/secrets/openwehr_app_key" ]]; then
-  printf 'base64:%s\n' "$(openssl rand -base64 32 | tr -d '\n')" > "$INSTALL_PATH/secrets/openwehr_app_key"
+[[ ! -L "$INSTALL_PATH/secrets/wehrportal_app_key" ]] || fail "Refusing symlinked WehrPortal app key"
+if [[ ! -e "$INSTALL_PATH/secrets/wehrportal_app_key" && -e "$INSTALL_PATH/secrets/openwehr_app_key" ]]; then
+  fail "A legacy APP_KEY exists at secrets/openwehr_app_key; refusing to generate a replacement. Resolve it explicitly before installing."
 fi
+if [[ ! -e "$INSTALL_PATH/secrets/wehrportal_app_key" ]]; then
+  printf 'base64:%s\n' "$(openssl rand -base64 32 | tr -d '\n')" > "$INSTALL_PATH/secrets/wehrportal_app_key"
+fi
+[[ -s "$INSTALL_PATH/secrets/wehrportal_app_key" ]] ||
+  fail "WehrPortal APP_KEY is empty; refusing to generate a replacement."
 [[ ! -L "$INSTALL_PATH/secrets/mail_smtp_password" ]] || fail "Refusing symlinked SMTP secret"
 if [[ ! -e "$INSTALL_PATH/secrets/mail_smtp_password" ]]; then
   : > "$INSTALL_PATH/secrets/mail_smtp_password"
 fi
-for name in openwehr_app_key mail_smtp_password; do
+for name in wehrportal_app_key mail_smtp_password; do
   [[ -f "$INSTALL_PATH/secrets/$name" ]] || fail "Secret path is not a regular file: $name"
   chmod 0600 "$INSTALL_PATH/secrets/$name"
 done
 for entry in "postgres/data:70:70" "matrix/data:991:991" "keycloak/providers:1000:1000" \
-  "keycloak/themes:1000:1000" "openwehr/storage/app:82:82" "grav/config:1000:1000"; do
+  "keycloak/themes:1000:1000" "wehrportal/storage/app:82:82" "grav/config:1000:1000"; do
   dir=${entry%%:*}
   owner=${entry#*:}
   uid=${owner%%:*}
@@ -517,20 +554,6 @@ if [[ -n "$DNS_ENV_FILE" && ! -e "$INSTALL_PATH/secrets/dns.env" ]]; then
 fi
 [[ ! -L "$INSTALL_PATH/secrets/dns.env" ]] || fail "Refusing symlinked DNS provider file"
 find "$INSTALL_PATH/secrets" -maxdepth 1 -type f -exec chmod 0600 {} +
-if [[ -n "${enabled[openwehr]:-}" && ! -f "$INSTALL_PATH/openwehr/source/Dockerfile" ]]; then
-  if [[ -n "$OPENWEHR_SOURCE" ]]; then
-    tar -C "$OPENWEHR_SOURCE" --exclude='./.git' --exclude='./.env' -cf - . |
-      tar -C "$INSTALL_PATH/openwehr/source" -xf -
-  else
-    command -v git >/dev/null || fail "Git is required to fetch the pinned OpenWehr source"
-    git -C "$INSTALL_PATH/openwehr/source" init -q
-    git -C "$INSTALL_PATH/openwehr/source" fetch --depth 1 \
-      https://github.com/TimUx/openwehr-extended.git refs/heads/extended
-    git -C "$INSTALL_PATH/openwehr/source" checkout --detach -q FETCH_HEAD
-    rm -rf -- "$INSTALL_PATH/openwehr/source/.git"
-  fi
-fi
-
 write_env() {
   local tmp
   tmp=$(mktemp "$INSTALL_PATH/.env.XXXXXX")
@@ -543,14 +566,15 @@ write_env() {
     printf 'ACME_CHALLENGE=%s\nACME_DNS_PROVIDER=%s\n' "${values[ACME_CHALLENGE]}" "${values[ACME_DNS_PROVIDER]}"
     printf 'ENABLED_APPS=%s\nMATRIX_FEDERATION=%s\nMATRIX_SERVER_NAME=%s\n' \
       "${values[ENABLED_APPS]}" "${values[MATRIX_FEDERATION]}" "${values[MATRIX_SERVER_NAME]}"
-    for key in KEYCLOAK_HOST OPENWEHR_HOST MATRIX_HOST FLUFFYCHAT_HOST ONLYOFFICE_HOST GRAV_HOST KEYCLOAK_ADMIN_USER OPENWEHR_ADMIN_EMAILS; do
+    for key in KEYCLOAK_HOST WEHRPORTAL_HOST MATRIX_HOST FLUFFYCHAT_HOST ONLYOFFICE_HOST GRAV_HOST KEYCLOAK_ADMIN_USER WEHRPORTAL_ADMIN_EMAILS; do
       printf '%s=%s\n' "$key" "${values[$key]}"
     done
+    printf 'WEHRPORTAL_IMAGE_TAG=%s\n' "${values[WEHRPORTAL_IMAGE_TAG]}"
     printf 'VPN_BACKEND_IP=%s\n' "${values[VPN_BACKEND_IP]}"
     printf 'MAIL_MAILER=smtp\nMAIL_HOST=%s\nMAIL_PORT=%s\nMAIL_USERNAME=%s\nMAIL_ENCRYPTION=%s\n' \
       "${values[MAIL_HOST]}" "${values[MAIL_PORT]}" "${values[MAIL_USERNAME]}" "${values[MAIL_ENCRYPTION]}"
     printf 'MAIL_FROM_ADDRESS=%s\nMAIL_FROM_NAME=%s\n' "${values[MAIL_FROM_ADDRESS]}" "${values[MAIL_FROM_NAME]}"
-    for key in KEYCLOAK_PORT OPENWEHR_PORT MATRIX_PORT FLUFFYCHAT_PORT ONLYOFFICE_PORT GRAV_PORT; do
+    for key in KEYCLOAK_PORT WEHRPORTAL_PORT MATRIX_PORT FLUFFYCHAT_PORT ONLYOFFICE_PORT GRAV_PORT; do
       printf '%s=%s\n' "$key" "${values[$key]}"
     done
   } > "$tmp"

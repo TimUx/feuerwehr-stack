@@ -54,7 +54,7 @@ EOF
   for app in "${apps[@]}"; do
     case "$app" in
       keycloak) add_remote keycloak "$(env_value KEYCLOAK_HOST)" "$(env_value KEYCLOAK_PORT)" 8080 ;;
-      openwehr) add_remote openwehr "$(env_value OPENWEHR_HOST)" "$(env_value OPENWEHR_PORT)" 8080 ;;
+      wehrportal) add_remote wehrportal "$(env_value WEHRPORTAL_HOST)" "$(env_value WEHRPORTAL_PORT)" 8080 ;;
       matrix)
         add_remote synapse "$(env_value MATRIX_HOST)" "$(env_value MATRIX_PORT)" 8008
         add_remote fluffychat "$(env_value FLUFFYCHAT_HOST)" "$(env_value FLUFFYCHAT_PORT)" 8080
@@ -116,7 +116,7 @@ EOF
   for app in "${apps[@]}"; do
     case "$app" in
       keycloak) add_labels keycloak "$(env_value KEYCLOAK_HOST)" 8080 ;;
-      openwehr) add_labels openwehr "$(env_value OPENWEHR_HOST)" 8080 ;;
+      wehrportal) add_labels wehrportal "$(env_value WEHRPORTAL_HOST)" 8080 ;;
       matrix)
         add_labels synapse "$(env_value MATRIX_HOST)" 8008
         add_labels fluffychat "$(env_value FLUFFYCHAT_HOST)" 8080

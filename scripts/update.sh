@@ -12,9 +12,5 @@ compose=(docker compose --project-directory "$ROOT" -f "$ROOT/compose.yml")
 [[ ! -f "$ROOT/compose.proxy.yml" ]] || compose+=(-f "$ROOT/compose.proxy.yml")
 [[ ! -f "$ROOT/compose.remote.yml" ]] || compose+=(-f "$ROOT/compose.remote.yml")
 "${compose[@]}" pull --ignore-buildable
-apps=$(sed -n 's/^ENABLED_APPS=//p' "$ROOT/.env" | head -n 1)
-if [[ ",$apps," == *,openwehr,* ]]; then
-  "${compose[@]}" build --pull openwehr openwehr-worker
-fi
-"${compose[@]}" up -d --build
+"${compose[@]}" up -d
 "$ROOT/scripts/healthcheck.sh"
