@@ -7,6 +7,7 @@ Der Installer akzeptiert Debian und Ubuntu sowie Docker Engine, Compose-Plugin v
 ## Einstellungen
 
 Kopiere `config/installation.env.example` und setze mindestens echte Domainnamen, ACME-E-Mail, SMTP-Server/-Absender sowie die gewünschten `ENABLED_APPS`. `BASE_DOMAIN` ist die Primärdomain inklusive Endung; `*_HOST` enthält jeweils den vollständigen DNS-Namen. Interaktiv fragt der Installer für jede Anwendung nach der Auswahl sowie nach dem Subdomain-Label unter der Primärdomain. Die Standards sind `login` (Keycloak), `portal` (WehrPortal), `matrix` (Synapse), `messenger` (FluffyChat), `docs` (ONLYOFFICE) und `www` (Website). Werte werden zeilenweise als `KEY=VALUE` gelesen, nicht als Shell-Code ausgeführt. Unbekannte Schlüssel werden ignoriert. Bestehende `.env`-Werte sind bei erneuten Installationen die Quelle der Wahrheit.
+Zusätzlich werden `STACK_MAX_MEMORY_MB` (mindestens 4096) und `STACK_MAX_CPUS` (mindestens 1) abgefragt. Der Installer verteilt dieses Gesamtbudget auf die aktivierten Dienste und schreibt die abgeleiteten `MEM_*`- und `CPU_*`-Werte in `.env`.
 
 Secrets werden separat erstellt. Gib keine Passwörter in die Konfigurationsdatei ein. Für DNS-01 wird eine zusätzliche Provider-Env-Datei benötigt; sie wird als `secrets/dns.env` geschützt abgelegt.
 
@@ -19,6 +20,7 @@ sudo ./install.sh --config ./config/installation.env --path /srv/apps/feuerwehr
 ```
 
 `--dry-run` führt keine Dateierstellung, Image-Pulls oder Containerstarts aus. Er prüft Domainsyntax, Reverse-Proxy-Auswahl, Remote-IP/Ports und bei eigenem Traefik belegte Ports. Docker-Netzwerk- und Hostchecks werden bei einer regulären Installation durchgeführt. `--no-start` bereitet die Stackdateien vor und lässt die eigentliche Diensteausführung aus.
+Bei erneuten Installationen aktualisiert der Installer `compose.yml` und `scripts/*` aus dem aktuellen Repository-Stand; bei Änderungen wird `compose.yml` vorab als `compose.yml.bak` gesichert.
 
 Vor der ersten Änderung zeigt der Installer Pfad, aktive Dienste, die DNS-Namen der ausgewählten Apps, Proxy-Modus und Matrix-Federation und verlangt Bestätigung. Lege die angezeigten DNS-Einträge vorher beim DNS-Anbieter an; der Installer konfiguriert keine DNS-Zone. `--yes` überspringt nur diese Bestätigung; es deaktiviert keine Validierungen.
 
