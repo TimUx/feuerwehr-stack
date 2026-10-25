@@ -9,17 +9,20 @@ create_role_and_database() {
   role=$1
   database=$2
   secret_path=$3
+  db_options=${4:-}
   psql \
     --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
     --set=db_user="$role" --set=db_password="$(read_secret "$secret_path")" \
-    --set=db_name="$database" <<'SQL'
+    --set=db_name="$database" --set=db_options="$db_options" <<'SQL'
 SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'db_user', :'db_password')
 WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'db_user') \gexec
-SELECT format('CREATE DATABASE %I OWNER %I', :'db_name', :'db_user')
+SELECT format('CREATE DATABASE %I OWNER %I %s', :'db_name', :'db_user', :'db_options')
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'db_name') \gexec
 SQL
 }
 
 create_role_and_database keycloak keycloak "$KEYCLOAK_DB_PASSWORD_FILE"
 create_role_and_database wehrportal wehrportal "$WEHRPORTAL_DB_PASSWORD_FILE"
-create_role_and_database synapse synapse "$SYNAPSE_DB_PASSWORD_FILE"
+# Synapse requires C collation
+create_role_and_database synapse synapse "$SYNAPSE_DB_PASSWORD_FILE" \
+  "TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'"
