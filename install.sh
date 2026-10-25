@@ -87,6 +87,13 @@ read_config() {
 [[ -z "$CONFIG_FILE" ]] || read_config "$CONFIG_FILE"
 if [[ "$PATH_EXPLICIT" != true ]]; then
   INSTALL_PATH=${supplied[INSTALL_PATH]:-$DEFAULT_PATH}
+  if [[ -z "${supplied[INSTALL_PATH]:-}" && ! -f "$INSTALL_PATH/.env" ]] && command -v docker >/dev/null 2>&1; then
+    detected=$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' \
+      $(docker ps -aq --filter label=com.docker.compose.project=feuerwehr 2>/dev/null | head -n1) 2>/dev/null | head -n1 || true)
+    if [[ "$detected" == /* && -f "$detected/.env" ]]; then
+      INSTALL_PATH=$detected
+    fi
+  fi
   if [[ -z "$CONFIG_FILE" && -t 0 && "$DRY_RUN" == false ]]; then
     read -r -p "Installationspfad [$INSTALL_PATH]: " answer
     INSTALL_PATH=${answer:-$INSTALL_PATH}
@@ -108,7 +115,13 @@ if [[ -f "$INSTALL_PATH/.env" ]] &&
   fail "This path contains an OpenWehr installation. WehrPortal is a fresh installation; use a separate empty path and retain the old data for rollback."
 fi
 if [[ -f "$INSTALL_PATH/.env" ]]; then
+  info "Bestehende Installation erkannt: $INSTALL_PATH – Konfiguration aus .env wird übernommen."
+  declare -A explicit=()
+  for key in "${!supplied[@]}"; do explicit["$key"]=${supplied[$key]}; done
   read_config "$INSTALL_PATH/.env"
+  # Values from --config win over the existing .env
+  for key in "${!explicit[@]}"; do supplied["$key"]=${explicit[$key]}; done
+  unset explicit
 fi
 for key in "${!supplied[@]}"; do values["$key"]=${supplied[$key]}; done
 if [[ -z "${values[FLUFFYCHAT_HOST]:-}" && -n "${values[ELEMENT_HOST]:-}" ]]; then
