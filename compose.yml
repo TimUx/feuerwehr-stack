@@ -117,6 +117,7 @@ services:
       MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-}
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Feuerwehr}
     entrypoint: ["/bin/sh", "/stack/wehrportal-entrypoint.sh"]
+    command: ["/init"]
     secrets: [wehrportal_db_password, wehrportal_app_key, mail_smtp_password]
     volumes:
       - ./scripts/wehrportal-entrypoint.sh:/stack/wehrportal-entrypoint.sh:ro
