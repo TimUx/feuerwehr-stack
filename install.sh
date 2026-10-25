@@ -508,7 +508,7 @@ for file in compose.yml scripts/postgres-init.sh scripts/keycloak-entrypoint.sh 
   scripts/uninstall.sh; do
   [[ -e "$INSTALL_PATH/$file" ]] || install -m 0644 "$SCRIPT_DIR/$file" "$INSTALL_PATH/$file"
 done
-chmod 0750 "$INSTALL_PATH"/scripts/*.sh
+chmod 0755 "$INSTALL_PATH"/scripts/*.sh
 for name in postgres_superuser_password keycloak_db_password wehrportal_db_password synapse_db_password \
   keycloak_admin_password onlyoffice_jwt_secret; do
   [[ ! -L "$INSTALL_PATH/secrets/$name" ]] || fail "Refusing symlinked secret file: $name"
@@ -517,7 +517,7 @@ for name in postgres_superuser_password keycloak_db_password wehrportal_db_passw
   else
     openssl rand -hex 32 > "$INSTALL_PATH/secrets/$name"
   fi
-  chmod 0600 "$INSTALL_PATH/secrets/$name"
+  chmod 0644 "$INSTALL_PATH/secrets/$name"
 done
 [[ ! -L "$INSTALL_PATH/secrets/wehrportal_app_key" ]] || fail "Refusing symlinked WehrPortal app key"
 if [[ ! -e "$INSTALL_PATH/secrets/wehrportal_app_key" && -e "$INSTALL_PATH/secrets/openwehr_app_key" ]]; then
@@ -534,7 +534,7 @@ if [[ ! -e "$INSTALL_PATH/secrets/mail_smtp_password" ]]; then
 fi
 for name in wehrportal_app_key mail_smtp_password; do
   [[ -f "$INSTALL_PATH/secrets/$name" ]] || fail "Secret path is not a regular file: $name"
-  chmod 0600 "$INSTALL_PATH/secrets/$name"
+  chmod 0644 "$INSTALL_PATH/secrets/$name"
 done
 for entry in "postgres/data:70:70" "matrix/data:991:991" "keycloak/providers:1000:1000" \
   "keycloak/themes:1000:1000" "wehrportal/storage/app:82:82" "grav/config:1000:1000"; do
@@ -553,7 +553,9 @@ if [[ -n "$DNS_ENV_FILE" && ! -e "$INSTALL_PATH/secrets/dns.env" ]]; then
   install -m 0600 "$DNS_ENV_FILE" "$INSTALL_PATH/secrets/dns.env"
 fi
 [[ ! -L "$INSTALL_PATH/secrets/dns.env" ]] || fail "Refusing symlinked DNS provider file"
-find "$INSTALL_PATH/secrets" -maxdepth 1 -type f -exec chmod 0600 {} +
+# Container users (postgres, keycloak, www-data) read secrets via bind mounts; the 0700 secrets directory keeps them private on the host.
+find "$INSTALL_PATH/secrets" -maxdepth 1 -type f ! -name dns.env -exec chmod 0644 {} +
+[[ ! -e "$INSTALL_PATH/secrets/dns.env" ]] || chmod 0600 "$INSTALL_PATH/secrets/dns.env"
 write_env() {
   local tmp
   tmp=$(mktemp "$INSTALL_PATH/.env.XXXXXX")

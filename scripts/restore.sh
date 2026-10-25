@@ -56,7 +56,8 @@ awk -v path="$ROOT" '
 ' "$ROOT/.env" > "$env_tmp" || { rm -f "$env_tmp"; echo "Backup .env has no STACK_ROOT." >&2; exit 1; }
 mv -f "$env_tmp" "$ROOT/.env"
 chmod 0600 "$ROOT/.env"
-chmod 0600 "$ROOT"/secrets/*
+chmod 0644 "$ROOT"/secrets/*
+[ ! -e "$ROOT/secrets/dns.env" ] || chmod 0600 "$ROOT/secrets/dns.env"
 "${compose[@]}" up -d postgres
 for ((attempt = 0; attempt < 60; attempt++)); do
   if "${compose[@]}" exec -T postgres pg_isready -U postgres -d postgres >/dev/null 2>&1; then break; fi
