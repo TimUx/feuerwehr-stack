@@ -28,9 +28,9 @@ sudo ./install.sh --config installation.env \
 
 Der Docker-Provider hat `exposedByDefault=false`; pro aktivierter Anwendung wird ein Router explizit gesetzt. Das Dashboard ist deaktiviert und nicht veröffentlicht. Der Docker-Socket-Mount ist trotz `:ro` kein sicherer Ersatz für einen Socket-Proxy: API-Zugriff kann Host-Kontrolle erlauben. Beschränke Zugriff auf den Stack-Host und erwäge einen separat gehärteten Docker-Socket-Proxy.
 
-## Existierender Traefik auf demselben Host (`same-host`)
+## Existierender Traefik über gemeinsames Docker-Netzwerk (`same-host`)
 
-Der Installer verlangt den expliziten Netzwerknamen `TRAEFIK_NETWORK` und prüft, dass es bereits existiert. Das Netzwerk wird nicht erstellt oder verändert. Es muss ein benutzerdefiniertes Docker-Netzwerk sein, an das der vorhandene Traefik bereits angeschlossen ist. Nur mit `ENABLE_PROXY_ROUTES=true` werden Labels und Router erzeugt. `TRAEFIK_CERT_RESOLVER` muss auf einen bereits konfigurierten Resolver zeigen.
+Der Installer verlangt den expliziten Netzwerknamen `TRAEFIK_NETWORK` und prüft, dass es bereits existiert. Das Netzwerk wird nicht erstellt oder verändert. Es muss ein benutzerdefiniertes Docker-Netzwerk sein, an das der vorhandene Traefik bereits angeschlossen ist. Das kann auch ein attachable Overlay-Netzwerk sein, über das ein Traefik auf einem anderen Host die Container erreicht. Die Labels setzen sowohl `traefik.docker.network` als auch `traefik.swarm.network` auf diesen Netzwerknamen und `X-Forwarded-Proto: https` über eine eigene Middleware je Dienst. Mit `TRAEFIK_MIDDLEWARES` (kommagetrennt, z. B. `frontend-security-chain@file`) werden vorhandene Middlewares des Traefik vor diese Middleware geschaltet. Nur mit `ENABLE_PROXY_ROUTES=true` werden Labels und Router erzeugt. `TRAEFIK_CERT_RESOLVER` muss auf einen bereits konfigurierten Resolver zeigen.
 
 Die Router-Namen sind mit `fwstack-` präfixiert. Prüfe `compose.proxy.yml` vor dem Start trotzdem gegen deine vorhandene Traefik-Konfiguration. Router werden nicht automatisch in die bestehende Traefik-Instanz übernommen, wenn die Route deaktiviert ist.
 
