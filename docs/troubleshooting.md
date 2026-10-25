@@ -24,7 +24,7 @@ Bei `--no-start` generiere die Konfiguration nach dem Prüfen der `MATRIX_SERVER
 
 ```bash
 sudo docker compose run --rm --no-deps synapse generate
-sudo docker compose run --rm --no-deps --user 991:991 --entrypoint python synapse /stack/configure_synapse.py
+sudo docker compose run --rm --no-deps --user 0:0 --entrypoint python synapse /stack/configure_synapse.py
 ```
 
 Eine vorhandene `matrix/data/homeserver.yaml` wird nicht überschrieben. PostgreSQL-Zugangsdaten liegen dort als geschützte Konfiguration; prüfe Modus `0600`. Zum sicheren Rotieren DB-Rolle und Synapse-Konfiguration abgestimmt ändern. Starte den Stack anschließend mit dem Compose-Befehl aus `docs/installation.md`, damit der passende Proxy-Override verwendet wird.

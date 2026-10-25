@@ -30,3 +30,4 @@ for listener in config.get("listeners", []):
             resource["names"] = [name for name in names if name != "federation"]
 config_path.write_text(yaml.safe_dump(config, sort_keys=False))
 config_path.chmod(0o600)
+os.chown(config_path, 991, 991)
