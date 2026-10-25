@@ -29,7 +29,7 @@ Options:
   -h, --help               Show this help
 
 Config keys: INSTALL_PATH, BASE_DOMAIN, ACME_EMAIL, PROXY_MODE, ENABLED_APPS,
-ENABLE_PROXY_ROUTES, TRAEFIK_NETWORK, TRAEFIK_CERT_RESOLVER, TRAEFIK_MIDDLEWARES, ACME_CHALLENGE,
+ENABLE_PROXY_ROUTES, TRAEFIK_NETWORK, TRAEFIK_CERT_RESOLVER, TRAEFIK_MIDDLEWARES, STACK_MAX_MEMORY_MB, STACK_MAX_CPUS, ACME_CHALLENGE,
 ACME_DNS_PROVIDER, ACME_DNS_ENV_FILE, MATRIX_SERVER_NAME, MATRIX_FEDERATION,
 VPN_BACKEND_IP, KEYCLOAK_HOST, WEHRPORTAL_HOST, WEHRPORTAL_IMAGE_TAG, MATRIX_HOST, FLUFFYCHAT_HOST,
 ONLYOFFICE_HOST, GRAV_HOST, KEYCLOAK_ADMIN_USER, MAIL_HOST,
@@ -56,7 +56,7 @@ while (($#)); do
 done
 
 for key in INSTALL_PATH BASE_DOMAIN ACME_EMAIL PROXY_MODE ENABLED_APPS ENABLE_PROXY_ROUTES \
-  TRAEFIK_NETWORK TRAEFIK_CERT_RESOLVER TRAEFIK_MIDDLEWARES ACME_CHALLENGE ACME_DNS_PROVIDER ACME_DNS_ENV_FILE \
+  TRAEFIK_NETWORK TRAEFIK_CERT_RESOLVER TRAEFIK_MIDDLEWARES STACK_MAX_MEMORY_MB STACK_MAX_CPUS ACME_CHALLENGE ACME_DNS_PROVIDER ACME_DNS_ENV_FILE \
   MATRIX_SERVER_NAME MATRIX_FEDERATION VPN_BACKEND_IP KEYCLOAK_HOST WEHRPORTAL_HOST WEHRPORTAL_IMAGE_TAG MATRIX_HOST \
   ELEMENT_HOST FLUFFYCHAT_HOST ONLYOFFICE_HOST GRAV_HOST KEYCLOAK_ADMIN_USER MAIL_HOST MAIL_PORT \
   MAIL_USERNAME MAIL_ENCRYPTION MAIL_FROM_ADDRESS MAIL_FROM_NAME KEYCLOAK_PORT WEHRPORTAL_PORT \
@@ -216,6 +216,14 @@ prompt MAIL_ENCRYPTION "SMTP-Verschlüsselung (tls/ssl/leer)" tls
 prompt MAIL_FROM_ADDRESS "Absenderadresse für WehrPortal" ""
 prompt MAIL_FROM_NAME "Absendername für WehrPortal" Feuerwehr
 
+host_mem_mb=$(awk '/^MemTotal:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || true)
+host_mem_mb=${host_mem_mb:-8192}
+default_mem_mb=$((host_mem_mb - 1024))
+((default_mem_mb >= 4096)) || default_mem_mb=4096
+default_cpus=$(nproc 2>/dev/null || echo 4)
+prompt STACK_MAX_MEMORY_MB "Maximaler Arbeitsspeicher für den gesamten Stack in MB (Host: ${host_mem_mb} MB)" "$default_mem_mb"
+prompt STACK_MAX_CPUS "Maximal nutzbare CPU-Kerne für den gesamten Stack (Host: ${default_cpus})" "$default_cpus"
+
 IFS=',' read -r -a apps <<< "${values[ENABLED_APPS]}"
 declare -A enabled=()
 for app in "${apps[@]}"; do
@@ -224,6 +232,42 @@ for app in "${apps[@]}"; do
   enabled["$app"]=1
 done
 [[ ${#enabled[@]} -gt 0 ]] || fail "Select at least one application"
+
+[[ "${values[STACK_MAX_MEMORY_MB]}" =~ ^[0-9]+$ ]] && ((10#${values[STACK_MAX_MEMORY_MB]} >= 4096)) ||
+  fail "STACK_MAX_MEMORY_MB must be an integer of at least 4096"
+[[ "${values[STACK_MAX_CPUS]}" =~ ^[0-9]+(\.[0-9]+)?$ ]] &&
+  awk -v c="${values[STACK_MAX_CPUS]}" 'BEGIN {exit !(c >= 1)}' ||
+  fail "STACK_MAX_CPUS must be a number of at least 1"
+if [[ -n "${enabled[onlyoffice]:-}" ]] && ((10#${values[STACK_MAX_MEMORY_MB]} < 8192)); then
+  printf 'WARN: ONLYOFFICE benötigt für den Normalbetrieb mindestens 8192 MB Stack-Speicher\n' >&2
+fi
+if ((10#${values[STACK_MAX_MEMORY_MB]} > host_mem_mb)); then
+  printf 'WARN: STACK_MAX_MEMORY_MB (%s) übersteigt den Host-Speicher (%s MB)\n' \
+    "${values[STACK_MAX_MEMORY_MB]}" "$host_mem_mb" >&2
+fi
+
+# Per-service ceilings share the budget by weight; name:memory weight:memory floor:cpu share
+declare -A limit_mem=() limit_cpu=()
+limit_services=(postgres:1024:512:0.50 redis:256:128:0.25)
+[[ -z "${enabled[keycloak]:-}" ]] || limit_services+=(keycloak:1024:768:0.50)
+[[ -z "${enabled[wehrportal]:-}" ]] || limit_services+=(wehrportal:768:512:0.50 wehrportal_worker:384:256:0.25)
+[[ -z "${enabled[matrix]:-}" ]] || limit_services+=(synapse:1024:512:0.50 fluffychat:128:64:0.15)
+[[ -z "${enabled[onlyoffice]:-}" ]] || limit_services+=(onlyoffice:3072:2048:0.75)
+[[ -z "${enabled[grav]:-}" ]] || limit_services+=(grav:384:256:0.25)
+[[ "${values[PROXY_MODE]}" != own ]] || limit_services+=(traefik:256:128:0.25)
+total_weight=0
+for entry in "${limit_services[@]}"; do
+  IFS=: read -r _ weight _ _ <<< "$entry"
+  total_weight=$((total_weight + weight))
+done
+for entry in "${limit_services[@]}"; do
+  IFS=: read -r name weight floor share <<< "$entry"
+  mem=$((10#${values[STACK_MAX_MEMORY_MB]} * weight / total_weight))
+  ((mem >= floor)) || mem=$floor
+  limit_mem[$name]="${mem}m"
+  limit_cpu[$name]=$(awk -v t="${values[STACK_MAX_CPUS]}" -v s="$share" \
+    'BEGIN {c = t * s; if (c < 0.25) c = 0.25; if (c > t) c = t; printf "%.2f", c}')
+done
 
 app_for_dns_prompt=keycloak
 prompt_dns_host KEYCLOAK_HOST "Keycloak (login)" login
@@ -478,6 +522,7 @@ Installation summary
   Base domain:    ${values[BASE_DOMAIN]}
   TLS challenge:  ${values[ACME_CHALLENGE]}
   Matrix server:  ${values[MATRIX_SERVER_NAME]} (federation: ${values[MATRIX_FEDERATION]})
+  Resource limits: ${values[STACK_MAX_MEMORY_MB]} MB RAM, ${values[STACK_MAX_CPUS]} CPU cores (Stack gesamt)
   Start services: $start_services
 EOF
 if [[ -n "${enabled[keycloak]:-}" ]]; then
@@ -522,7 +567,11 @@ for file in compose.yml scripts/postgres-init.sh scripts/keycloak-entrypoint.sh 
   scripts/onlyoffice-entrypoint.sh scripts/generate-proxy-config.sh scripts/configure-synapse.py \
   scripts/backup.sh scripts/restore.sh scripts/update.sh scripts/healthcheck.sh scripts/validate.sh \
   scripts/uninstall.sh; do
-  [[ -e "$INSTALL_PATH/$file" ]] || install -m 0644 "$SCRIPT_DIR/$file" "$INSTALL_PATH/$file"
+  # Stack-managed files are refreshed on every run so updates reach existing installations
+  if [[ -e "$INSTALL_PATH/$file" && "$file" == compose.yml ]] && ! cmp -s "$SCRIPT_DIR/$file" "$INSTALL_PATH/$file"; then
+    cp -p "$INSTALL_PATH/$file" "$INSTALL_PATH/$file.bak"
+  fi
+  install -m 0644 "$SCRIPT_DIR/$file" "$INSTALL_PATH/$file"
 done
 chmod 0755 "$INSTALL_PATH"/scripts/*.sh
 for name in postgres_superuser_password keycloak_db_password wehrportal_db_password synapse_db_password \
@@ -589,6 +638,10 @@ write_env() {
     done
     printf 'WEHRPORTAL_IMAGE_TAG=%s\n' "${values[WEHRPORTAL_IMAGE_TAG]}"
     printf 'VPN_BACKEND_IP=%s\n' "${values[VPN_BACKEND_IP]}"
+    printf 'STACK_MAX_MEMORY_MB=%s\nSTACK_MAX_CPUS=%s\n' "${values[STACK_MAX_MEMORY_MB]}" "${values[STACK_MAX_CPUS]}"
+    for name in "${!limit_mem[@]}"; do
+      printf 'MEM_%s=%s\nCPU_%s=%s\n' "${name^^}" "${limit_mem[$name]}" "${name^^}" "${limit_cpu[$name]}"
+    done | sort
     printf 'TRAEFIK_MIDDLEWARES=%s\n' "${values[TRAEFIK_MIDDLEWARES]}"
     printf 'MAIL_MAILER=smtp\nMAIL_HOST=%s\nMAIL_PORT=%s\nMAIL_USERNAME=%s\nMAIL_ENCRYPTION=%s\n' \
       "${values[MAIL_HOST]}" "${values[MAIL_PORT]}" "${values[MAIL_USERNAME]}" "${values[MAIL_ENCRYPTION]}"

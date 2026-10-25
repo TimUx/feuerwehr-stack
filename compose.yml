@@ -5,6 +5,8 @@ services:
     image: postgres:16.6-alpine
     profiles: [data]
     restart: unless-stopped
+    mem_limit: ${MEM_POSTGRES:-1g}
+    cpus: ${CPU_POSTGRES:-1.00}
     environment:
       POSTGRES_USER: postgres
       POSTGRES_DB: postgres
@@ -34,6 +36,8 @@ services:
     image: redis:7.4.2-alpine
     profiles: [wehrportal]
     restart: unless-stopped
+    mem_limit: ${MEM_REDIS:-256m}
+    cpus: ${CPU_REDIS:-0.50}
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     networks: [backend]
     healthcheck:
@@ -47,6 +51,8 @@ services:
     image: quay.io/keycloak/keycloak:26.1.4
     profiles: [keycloak]
     restart: unless-stopped
+    mem_limit: ${MEM_KEYCLOAK:-1g}
+    cpus: ${CPU_KEYCLOAK:-1.00}
     entrypoint: ["/bin/sh", "/stack/keycloak-entrypoint.sh"]
     environment:
       KC_DB: postgres
@@ -83,6 +89,8 @@ services:
     image: ghcr.io/timux/wehrportal:${WEHRPORTAL_IMAGE_TAG:-UNCONFIGURED}
     profiles: [wehrportal]
     restart: unless-stopped
+    mem_limit: ${MEM_WEHRPORTAL:-768m}
+    cpus: ${CPU_WEHRPORTAL:-1.00}
     environment:
       APP_NAME: WehrPortal
       APP_ENV: production
@@ -141,6 +149,8 @@ services:
     image: ghcr.io/timux/wehrportal:${WEHRPORTAL_IMAGE_TAG:-UNCONFIGURED}
     profiles: [wehrportal]
     restart: unless-stopped
+    mem_limit: ${MEM_WEHRPORTAL_WORKER:-384m}
+    cpus: ${CPU_WEHRPORTAL_WORKER:-0.50}
     environment:
       APP_ENV: production
       APP_DEBUG: "false"
@@ -191,6 +201,8 @@ services:
     image: matrixdotorg/synapse:v1.125.0
     profiles: [matrix]
     restart: unless-stopped
+    mem_limit: ${MEM_SYNAPSE:-1g}
+    cpus: ${CPU_SYNAPSE:-1.00}
     environment:
       SYNAPSE_CONFIG_PATH: /data/homeserver.yaml
       SYNAPSE_SERVER_NAME: ${MATRIX_SERVER_NAME}
@@ -219,6 +231,8 @@ services:
     image: ghcr.io/etkecc/fluffychat-web:v2.10.0
     profiles: [matrix]
     restart: unless-stopped
+    mem_limit: ${MEM_FLUFFYCHAT:-128m}
+    cpus: ${CPU_FLUFFYCHAT:-0.25}
     volumes:
       - ${STACK_ROOT}/fluffychat/config.json:/var/public/config.json:ro
     expose: ["8080"]
@@ -234,6 +248,8 @@ services:
     image: onlyoffice/documentserver:8.3.3.1
     profiles: [onlyoffice]
     restart: unless-stopped
+    mem_limit: ${MEM_ONLYOFFICE:-3g}
+    cpus: ${CPU_ONLYOFFICE:-2.00}
     entrypoint: ["/bin/bash", "/stack/onlyoffice-entrypoint.sh"]
     environment:
       JWT_ENABLED: "true"
@@ -252,6 +268,8 @@ services:
     image: lscr.io/linuxserver/grav:version-1.7.48
     profiles: [grav]
     restart: unless-stopped
+    mem_limit: ${MEM_GRAV:-384m}
+    cpus: ${CPU_GRAV:-0.50}
     environment:
       PUID: "1000"
       PGID: "1000"
@@ -271,6 +289,8 @@ services:
     image: traefik:v3.3.4
     profiles: [proxy]
     restart: unless-stopped
+    mem_limit: ${MEM_TRAEFIK:-256m}
+    cpus: ${CPU_TRAEFIK:-0.50}
     command:
       - --api.dashboard=false
       - --ping=true
