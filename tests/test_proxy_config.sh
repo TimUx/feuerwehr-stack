@@ -35,6 +35,11 @@ grep -q 'portal.example.org' "$tmp/compose.proxy.yml"
 grep -q 'name: shared-proxy' "$tmp/compose.proxy.yml"
 grep -q 'traefik.docker.network: "shared-proxy"' "$tmp/compose.proxy.yml"
 grep -q 'fwstack-fluffychat' "$tmp/compose.proxy.yml"
+grep -q 'traefik.swarm.network: "shared-proxy"' "$tmp/compose.proxy.yml"
+grep -q 'middlewares: "fwstack-fluffychat-headers"' "$tmp/compose.proxy.yml"
+printf 'TRAEFIK_MIDDLEWARES=frontend-security-chain@file\n' >> "$tmp/.env"
+"$ROOT/scripts/generate-proxy-config.sh" "$tmp" matrix same-host true le shared-proxy http ""
+grep -q 'middlewares: "frontend-security-chain@file,fwstack-synapse-headers"' "$tmp/compose.proxy.yml"
 
 "$ROOT/scripts/generate-proxy-config.sh" "$tmp" matrix same-host false le shared-proxy http ""
 [[ ! -e "$tmp/compose.proxy.yml" ]]

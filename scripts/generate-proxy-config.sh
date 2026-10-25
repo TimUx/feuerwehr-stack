@@ -93,17 +93,22 @@ fi
 [[ "$routes" == true ]] || exit 0
 {
   printf 'services:\n'
+  extra_middlewares=$(env_value TRAEFIK_MIDDLEWARES)
   add_labels() {
-    local service=$1 host=$2 port=$3
+    local service=$1 host=$2 port=$3 chain="fwstack-$1-headers"
+    [[ -z "$extra_middlewares" ]] || chain="${extra_middlewares},${chain}"
     cat <<EOF
   ${service}:
     labels:
       traefik.enable: "true"
       traefik.docker.network: "${network:-feuerwehr_frontend}"
+      traefik.swarm.network: "${network:-feuerwehr_frontend}"
       traefik.http.routers.fwstack-${service}.rule: "Host(\`${host}\`)"
       traefik.http.routers.fwstack-${service}.entrypoints: websecure
       traefik.http.routers.fwstack-${service}.tls: "true"
       traefik.http.routers.fwstack-${service}.tls.certresolver: ${resolver}
+      traefik.http.routers.fwstack-${service}.middlewares: "${chain}"
+      traefik.http.middlewares.fwstack-${service}-headers.headers.customrequestheaders.X-Forwarded-Proto: https
       traefik.http.services.${service}.loadbalancer.server.port: "${port}"
 EOF
     if [[ "$mode" == same-host ]]; then
