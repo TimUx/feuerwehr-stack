@@ -611,7 +611,7 @@ compose=(docker compose --project-directory "$INSTALL_PATH" -f "$INSTALL_PATH/co
 if [[ "$NO_START" != true ]]; then
   if [[ -n "${enabled[matrix]:-}" && ! -f "$INSTALL_PATH/matrix/data/homeserver.yaml" ]]; then
     "${compose[@]}" run --rm --no-deps synapse generate
-    "${compose[@]}" run --rm --no-deps --user 991:991 --entrypoint python synapse /stack/configure_synapse.py
+    "${compose[@]}" run --rm --no-deps --user 0:0 --entrypoint python synapse /stack/configure_synapse.py
   fi
   "${compose[@]}" up -d
   info "Stack started. Check service health: $INSTALL_PATH/scripts/healthcheck.sh"
