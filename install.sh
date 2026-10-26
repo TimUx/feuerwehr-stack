@@ -227,6 +227,11 @@ prompt MAIL_USERNAME "SMTP-Benutzername" ""
 prompt MAIL_ENCRYPTION "SMTP-Verschlüsselung (tls/ssl/leer)" tls
 prompt MAIL_FROM_ADDRESS "Absenderadresse für WehrPortal" ""
 prompt MAIL_FROM_NAME "Absendername für WehrPortal" Feuerwehr
+smtp_password=
+if [[ -n "${values[MAIL_USERNAME]}" && -t 0 && "$DRY_RUN" == false ]]; then
+  read -r -s -p "SMTP-Passwort (Eingabe unsichtbar, leer = vorhandenes behalten) []: " smtp_password
+  printf '\n'
+fi
 
 host_mem_mb=$(awk '/^MemTotal:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || true)
 host_mem_mb=${host_mem_mb:-8192}
@@ -628,6 +633,12 @@ fi
 [[ ! -L "$INSTALL_PATH/secrets/mail_smtp_password" ]] || fail "Refusing symlinked SMTP secret"
 if [[ ! -e "$INSTALL_PATH/secrets/mail_smtp_password" ]]; then
   : > "$INSTALL_PATH/secrets/mail_smtp_password"
+fi
+if [[ -n "$smtp_password" ]]; then
+  (umask 077; printf '%s' "$smtp_password" > "$INSTALL_PATH/secrets/mail_smtp_password")
+fi
+if [[ -n "${values[MAIL_USERNAME]}" && ! -s "$INSTALL_PATH/secrets/mail_smtp_password" ]]; then
+  printf 'WARN: secrets/mail_smtp_password ist leer, obwohl ein SMTP-Benutzer gesetzt ist\n' >&2
 fi
 for name in wehrportal_app_key mail_smtp_password; do
   [[ -f "$INSTALL_PATH/secrets/$name" ]] || fail "Secret path is not a regular file: $name"
