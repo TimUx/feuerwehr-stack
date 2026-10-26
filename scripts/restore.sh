@@ -43,10 +43,17 @@ fi
 printf 'This will stop the Compose project and overwrite its configuration and application files.\n'
 read -r -p "Type RESTORE to continue: " answer
 [[ "$answer" == RESTORE ]] || exit 1
-compose=(docker compose --project-directory "$ROOT" -f "$ROOT/compose.yml")
-[[ ! -f "$ROOT/compose.proxy.yml" ]] || compose+=(-f "$ROOT/compose.proxy.yml")
-[[ ! -f "$ROOT/compose.remote.yml" ]] || compose+=(-f "$ROOT/compose.remote.yml")
-"${compose[@]}" down
+# shellcheck source=scripts/lib.sh
+source "$ROOT/scripts/lib.sh"
+if [[ "$DEPLOY_MODE" == swarm ]]; then
+  docker stack rm "$STACK_NAME"
+  for ((attempt = 0; attempt < 60; attempt++)); do
+    [[ -z "$(docker network ls -q --filter "name=^${STACK_NAME}_")" ]] && break
+    sleep 2
+  done
+else
+  "${compose[@]}" down
+fi
 cp -a "$staging/files/." "$ROOT/"
 env_tmp=$(mktemp "$ROOT/.env.restore.XXXXXX")
 awk -v path="$ROOT" '
@@ -58,12 +65,19 @@ mv -f "$env_tmp" "$ROOT/.env"
 chmod 0600 "$ROOT/.env"
 chmod 0644 "$ROOT"/secrets/*
 [ ! -e "$ROOT/secrets/dns.env" ] || chmod 0600 "$ROOT/secrets/dns.env"
-"${compose[@]}" up -d postgres
+# The restored .env may carry a different deployment mode.
+# shellcheck source=scripts/lib.sh
+source "$ROOT/scripts/lib.sh"
+if [[ "$DEPLOY_MODE" == swarm ]]; then
+  deploy_stack
+else
+  "${compose[@]}" up -d postgres
+fi
 for ((attempt = 0; attempt < 60; attempt++)); do
-  if "${compose[@]}" exec -T postgres pg_isready -U postgres -d postgres >/dev/null 2>&1; then break; fi
+  if pg_exec pg_isready -U postgres -d postgres >/dev/null 2>&1; then break; fi
   sleep 2
 done
-"${compose[@]}" exec -T postgres pg_isready -U postgres -d postgres >/dev/null ||
+pg_exec pg_isready -U postgres -d postgres >/dev/null ||
   { echo "PostgreSQL did not become ready." >&2; exit 1; }
 
 apps=$(sed -n 's/^ENABLED_APPS=//p' "$ROOT/.env" | head -n 1)
@@ -78,13 +92,23 @@ for app in "${selected_apps[@]}"; do
   [[ -f "$staging/database/${db}.dump" ]] || { echo "Missing database dump: $db" >&2; exit 1; }
   secret="$ROOT/secrets/${role}_db_password"
   [[ -f "$secret" ]] || { echo "Missing restored secret for $role." >&2; exit 1; }
-  "${compose[@]}" exec -T postgres psql -U postgres -d postgres \
+  pg_exec psql -U postgres -d postgres \
     --set=db_password="$(cat "$secret")" <<SQL
 SELECT format('ALTER ROLE %I PASSWORD %L', '$role', :'db_password') \\gexec
 SQL
-  "${compose[@]}" exec -T postgres pg_restore -U postgres --clean --if-exists --no-owner \
+  pg_exec pg_restore -U postgres --clean --if-exists --no-owner \
     --dbname "$db" < "$staging/database/${db}.dump"
 done
-"${compose[@]}" up -d
+if [[ "$DEPLOY_MODE" == swarm ]]; then
+  while read -r service; do
+    [[ "$service" == "${STACK_NAME}_postgres" ]] || docker service update --force --detach=true "$service" >/dev/null
+  done < <(swarm_services)
+  for ((attempt = 0; attempt < 30; attempt++)); do
+    "$ROOT/scripts/healthcheck.sh" >/dev/null 2>&1 && break
+    sleep 10
+  done
+else
+  "${compose[@]}" up -d
+fi
 "$ROOT/scripts/healthcheck.sh"
 echo "Restore completed. Verify application login, uploaded files, and federation manually."

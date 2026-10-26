@@ -29,7 +29,7 @@ Options:
   -h, --help               Show this help
 
 Config keys: INSTALL_PATH, BASE_DOMAIN, ACME_EMAIL, PROXY_MODE, ENABLED_APPS,
-ENABLE_PROXY_ROUTES, TRAEFIK_NETWORK, TRAEFIK_CERT_RESOLVER, TRAEFIK_MIDDLEWARES, STACK_MAX_MEMORY_MB, STACK_MAX_CPUS, ACME_CHALLENGE,
+ENABLE_PROXY_ROUTES, TRAEFIK_NETWORK, TRAEFIK_CERT_RESOLVER, DEPLOY_MODE, TRAEFIK_MIDDLEWARES, STACK_MAX_MEMORY_MB, STACK_MAX_CPUS, ACME_CHALLENGE,
 ACME_DNS_PROVIDER, ACME_DNS_ENV_FILE, MATRIX_SERVER_NAME, MATRIX_FEDERATION,
 VPN_BACKEND_IP, KEYCLOAK_HOST, WEHRPORTAL_HOST, WEHRPORTAL_IMAGE_TAG, MATRIX_HOST, FLUFFYCHAT_HOST,
 ONLYOFFICE_HOST, GRAV_HOST, KEYCLOAK_ADMIN_USER, MAIL_HOST,
@@ -56,7 +56,7 @@ while (($#)); do
 done
 
 for key in INSTALL_PATH BASE_DOMAIN ACME_EMAIL PROXY_MODE ENABLED_APPS ENABLE_PROXY_ROUTES \
-  TRAEFIK_NETWORK TRAEFIK_CERT_RESOLVER TRAEFIK_MIDDLEWARES STACK_MAX_MEMORY_MB STACK_MAX_CPUS ACME_CHALLENGE ACME_DNS_PROVIDER ACME_DNS_ENV_FILE \
+  DEPLOY_MODE TRAEFIK_NETWORK TRAEFIK_CERT_RESOLVER TRAEFIK_MIDDLEWARES STACK_MAX_MEMORY_MB STACK_MAX_CPUS ACME_CHALLENGE ACME_DNS_PROVIDER ACME_DNS_ENV_FILE \
   MATRIX_SERVER_NAME MATRIX_FEDERATION VPN_BACKEND_IP KEYCLOAK_HOST WEHRPORTAL_HOST WEHRPORTAL_IMAGE_TAG MATRIX_HOST \
   ELEMENT_HOST FLUFFYCHAT_HOST ONLYOFFICE_HOST GRAV_HOST KEYCLOAK_ADMIN_USER MAIL_HOST MAIL_PORT \
   MAIL_USERNAME MAIL_ENCRYPTION MAIL_FROM_ADDRESS MAIL_FROM_NAME KEYCLOAK_PORT WEHRPORTAL_PORT \
@@ -197,7 +197,19 @@ require_value() {
 prompt BASE_DOMAIN "Primäre Domain (inklusive Endung)" feuerwehr.example.de
 select_apps
 prompt ACME_EMAIL "Let's Encrypt E-Mail-Adresse" admin@example.de
-prompt PROXY_MODE "Reverse-Proxy-Modus (own/same-host/remote)" own
+swarm_manager=false
+if command -v docker >/dev/null &&
+   [[ "$(docker info --format '{{.Swarm.ControlAvailable}}' 2>/dev/null || true)" == true ]]; then
+  swarm_manager=true
+fi
+# Existing installations keep their mode; only fresh installs on a Swarm manager default to swarm.
+default_deploy=compose
+if [[ "$swarm_manager" == true && ! -f "$INSTALL_PATH/.env" ]]; then default_deploy=swarm; fi
+prompt DEPLOY_MODE "Bereitstellung (compose = Docker Compose, swarm = Docker-Swarm-Stack)" "$default_deploy"
+case "${values[DEPLOY_MODE]}" in compose|swarm) ;; *) fail "DEPLOY_MODE must be compose or swarm" ;; esac
+default_proxy=own
+[[ "${values[DEPLOY_MODE]}" != swarm ]] || default_proxy=same-host
+prompt PROXY_MODE "Reverse-Proxy-Modus (own/same-host/remote)" "$default_proxy"
 prompt ENABLE_PROXY_ROUTES "Proxy-Routen aktivieren (true/false)" true
 prompt TRAEFIK_NETWORK "Vorhandenes Traefik-Docker-Netzwerk" ""
 prompt TRAEFIK_CERT_RESOLVER "Zertifikatsresolver des vorhandenen Traefik" ""
@@ -447,9 +459,18 @@ if [[ "${values[PROXY_MODE]}" == own ]]; then
     fi
   done
 fi
+if [[ "${values[DEPLOY_MODE]}" == swarm && "${values[PROXY_MODE]}" != same-host ]]; then
+  fail "DEPLOY_MODE=swarm requires PROXY_MODE=same-host (Traefik reads the labels through the swarm overlay network)"
+fi
+if [[ "${values[DEPLOY_MODE]}" == swarm && "${values[ENABLE_PROXY_ROUTES]}" != true ]]; then
+  printf 'WARN: Swarm-Modus ohne ENABLE_PROXY_ROUTES=true erzeugt keine Traefik-Labels\n' >&2
+fi
 if [[ "${values[PROXY_MODE]}" == same-host ]]; then
   if command -v docker >/dev/null && docker network inspect "${values[TRAEFIK_NETWORK]}" >/dev/null 2>&1; then
-    :
+    if [[ "${values[DEPLOY_MODE]}" == swarm &&
+          "$(docker network inspect --format '{{.Scope}}' "${values[TRAEFIK_NETWORK]}")" != swarm ]]; then
+      fail "Network ${values[TRAEFIK_NETWORK]} is not a swarm overlay network (scope swarm)"
+    fi
   elif [[ "$DRY_RUN" == true ]]; then
     printf 'WARN: cannot verify existing Docker network %s during dry-run\n' "${values[TRAEFIK_NETWORK]}" >&2
   else
@@ -470,6 +491,16 @@ if [[ "$DRY_RUN" == false ]]; then
   command -v docker >/dev/null || fail "Docker Engine is not installed"
   docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 plugin is required"
   docker info >/dev/null 2>&1 || fail "Docker Engine is not reachable"
+  if [[ "${values[DEPLOY_MODE]}" == swarm ]]; then
+    [[ "$swarm_manager" == true ]] ||
+      fail "DEPLOY_MODE=swarm requires a Docker Swarm manager node (docker swarm init)"
+    command -v python3 >/dev/null || fail "python3 is required to build the Swarm stack file"
+    if [[ -n "$(docker ps -q --filter label=com.docker.compose.project=feuerwehr 2>/dev/null)" ]]; then
+      fail "Compose containers of project feuerwehr are running; stop them first (docker compose down) before switching to swarm"
+    fi
+  elif docker stack ls --format '{{.Name}}' 2>/dev/null | grep -qx feuerwehr; then
+    fail "A Swarm stack named feuerwehr exists; remove it first (docker stack rm feuerwehr) before switching to compose"
+  fi
   command -v openssl >/dev/null || fail "openssl is required to generate secrets"
   space_path=$(dirname -- "$INSTALL_PATH")
   while [[ ! -d "$space_path" ]]; do space_path=$(dirname -- "$space_path"); done
@@ -523,6 +554,7 @@ Installation summary
   TLS challenge:  ${values[ACME_CHALLENGE]}
   Matrix server:  ${values[MATRIX_SERVER_NAME]} (federation: ${values[MATRIX_FEDERATION]})
   Resource limits: ${values[STACK_MAX_MEMORY_MB]} MB RAM, ${values[STACK_MAX_CPUS]} CPU cores (Stack gesamt)
+  Deployment:     ${values[DEPLOY_MODE]}
   Start services: $start_services
 EOF
 if [[ -n "${enabled[keycloak]:-}" ]]; then
@@ -566,7 +598,7 @@ install -d -m 0750 "$INSTALL_PATH/scripts"
 for file in compose.yml scripts/postgres-init.sh scripts/keycloak-entrypoint.sh scripts/wehrportal-entrypoint.sh \
   scripts/onlyoffice-entrypoint.sh scripts/generate-proxy-config.sh scripts/configure-synapse.py \
   scripts/backup.sh scripts/restore.sh scripts/update.sh scripts/healthcheck.sh scripts/validate.sh \
-  scripts/uninstall.sh; do
+  scripts/uninstall.sh scripts/lib.sh scripts/generate-swarm-stack.py; do
   # Stack-managed files are refreshed on every run so updates reach existing installations
   if [[ -e "$INSTALL_PATH/$file" && "$file" == compose.yml ]] && ! cmp -s "$SCRIPT_DIR/$file" "$INSTALL_PATH/$file"; then
     cp -p "$INSTALL_PATH/$file" "$INSTALL_PATH/$file.bak"
@@ -637,7 +669,7 @@ write_env() {
       printf '%s=%s\n' "$key" "${values[$key]}"
     done
     printf 'WEHRPORTAL_IMAGE_TAG=%s\n' "${values[WEHRPORTAL_IMAGE_TAG]}"
-    printf 'VPN_BACKEND_IP=%s\n' "${values[VPN_BACKEND_IP]}"
+    printf 'VPN_BACKEND_IP=%s\nDEPLOY_MODE=%s\n' "${values[VPN_BACKEND_IP]}" "${values[DEPLOY_MODE]}"
     printf 'STACK_MAX_MEMORY_MB=%s\nSTACK_MAX_CPUS=%s\n' "${values[STACK_MAX_MEMORY_MB]}" "${values[STACK_MAX_CPUS]}"
     for name in "${!limit_mem[@]}"; do
       printf 'MEM_%s=%s\nCPU_%s=%s\n' "${name^^}" "${limit_mem[$name]}" "${name^^}" "${limit_cpu[$name]}"
@@ -682,10 +714,21 @@ compose=(docker compose --project-directory "$INSTALL_PATH" -f "$INSTALL_PATH/co
 "${compose[@]}" config --quiet
 if [[ "$NO_START" != true ]]; then
   if [[ -n "${enabled[matrix]:-}" && ! -f "$INSTALL_PATH/matrix/data/homeserver.yaml" ]]; then
-    "${compose[@]}" run --rm --no-deps synapse generate
-    "${compose[@]}" run --rm --no-deps --user 0:0 --entrypoint python synapse /stack/configure_synapse.py
+    # Without proxy overrides, so the one-off container never attaches to the shared overlay network.
+    run_compose=(docker compose --project-directory "$INSTALL_PATH" -f "$INSTALL_PATH/compose.yml")
+    "${run_compose[@]}" run --rm --no-deps synapse generate
+    "${run_compose[@]}" run --rm --no-deps --user 0:0 --entrypoint python synapse /stack/configure_synapse.py
+    # Drop the bridge networks created by "run" so the stack can create its overlay networks.
+    [[ "${values[DEPLOY_MODE]}" != swarm ]] || "${run_compose[@]}" down >/dev/null
   fi
-  "${compose[@]}" up -d
+  if [[ "${values[DEPLOY_MODE]}" == swarm ]]; then
+    ROOT=$INSTALL_PATH
+    # shellcheck source=scripts/lib.sh
+    . "$INSTALL_PATH/scripts/lib.sh"
+    deploy_stack
+  else
+    "${compose[@]}" up -d
+  fi
   info "Stack started. Check service health: $INSTALL_PATH/scripts/healthcheck.sh"
 else
   info "Files prepared. Review $INSTALL_PATH/.env, then use the documented start command."

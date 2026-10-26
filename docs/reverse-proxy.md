@@ -50,3 +50,13 @@ Remote IPv6-Adressen werden vom Installer aktuell nicht unterstützt. Hostports 
 ## Matrix-Domainmodell
 
 `MATRIX_HOST` ist die HTTPS-Adresse für Client-Server-API und wird als FluffyChats Standard-Homeserver konfiguriert. `MATRIX_SERVER_NAME` identifiziert Matrix-Konten/Federation. Stimmen sie nicht überein, müssen `/.well-known/matrix/client` und `/.well-known/matrix/server` zur passenden API bzw. Federation-Adresse zeigen. Diese Well-known-Dateien werden nicht generiert. Federation ist standardmäßig deaktiviert und benötigt zusätzliche DNS-/Firewall-Prüfung.
+
+## Docker-Swarm-Modus
+
+Liest ein Traefik (auch auf einem anderen Host) nur den Swarm-Provider, ignoriert er Labels normaler Container. Dann im Installer `DEPLOY_MODE=swarm` wählen (nur mit `PROXY_MODE=same-host`):
+
+- Voraussetzungen: Swarm-Manager-Knoten, `python3`, `TRAEFIK_NETWORK` ist ein Overlay-Netz mit Scope `swarm`.
+- `scripts/generate-swarm-stack.py` erzeugt aus `compose.yml` und `compose.proxy.yml` die Datei `stack.swarm.yml` (Labels unter `deploy.labels`, CPU/RAM als `deploy.resources.limits`, Secrets mit Hash-Suffix, Overlay-Netze). Deployment: `docker stack deploy -c stack.swarm.yml feuerwehr`; `update.sh` macht das automatisch.
+- Alle Dienste sind per Platzierungsregel an den Installationsknoten gebunden (Bind-Mounts und Secrets liegen lokal). Es gibt kein `depends_on`; Neustarts übernimmt die Restart-Policy.
+- `backup.sh`, `restore.sh`, `healthcheck.sh`, `update.sh`, `uninstall.sh` erkennen den Modus über `DEPLOY_MODE` in `.env`.
+- Moduswechsel: zuvor den anderen Modus beenden (`docker compose down` bzw. `docker stack rm feuerwehr`).
