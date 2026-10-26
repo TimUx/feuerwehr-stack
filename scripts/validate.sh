@@ -13,8 +13,12 @@ done
 mode=$(stat -c '%a' "$ROOT/.env")
 (( (8#$mode & 077) == 0 )) || { echo "Insecure .env permissions." >&2; exit 1; }
 
-compose=(docker compose --project-directory "$ROOT" -f "$ROOT/compose.yml")
-[[ ! -f "$ROOT/compose.proxy.yml" ]] || compose+=(-f "$ROOT/compose.proxy.yml")
-[[ ! -f "$ROOT/compose.remote.yml" ]] || compose+=(-f "$ROOT/compose.remote.yml")
+# shellcheck source=scripts/lib.sh
+source "$ROOT/scripts/lib.sh"
 "${compose[@]}" config --quiet
-echo "Compose configuration and secret-file permissions are valid."
+if [[ "$DEPLOY_MODE" == swarm ]]; then
+  python3 "$ROOT/scripts/generate-swarm-stack.py" --output /dev/null "$ROOT"
+  echo "Swarm stack model and secret-file permissions are valid."
+else
+  echo "Compose configuration and secret-file permissions are valid."
+fi

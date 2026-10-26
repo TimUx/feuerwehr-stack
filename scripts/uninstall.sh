@@ -11,13 +11,16 @@ case "${1:-}" in
 esac
 [[ "$ROOT" != / && -f "$ROOT/.env" && -f "$ROOT/compose.yml" ]] ||
   { echo "Not a valid installation directory." >&2; exit 1; }
-compose=(docker compose --project-directory "$ROOT" -f "$ROOT/compose.yml")
-[[ ! -f "$ROOT/compose.proxy.yml" ]] || compose+=(-f "$ROOT/compose.proxy.yml")
-[[ ! -f "$ROOT/compose.remote.yml" ]] || compose+=(-f "$ROOT/compose.remote.yml")
-echo "This removes this Compose project's containers and networks. Data remains at $ROOT."
+# shellcheck source=scripts/lib.sh
+source "$ROOT/scripts/lib.sh"
+echo "This removes this stack's containers and networks. Data remains at $ROOT."
 read -r -p "Type REMOVE-CONTAINERS to continue: " answer
 [[ "$answer" == REMOVE-CONTAINERS ]] || exit 1
-"${compose[@]}" down
+if [[ "$DEPLOY_MODE" == swarm ]]; then
+  docker stack rm "$STACK_NAME"
+else
+  "${compose[@]}" down
+fi
 if [[ "$delete_data" == true ]]; then
   [[ $EUID -eq 0 ]] || { echo "Run data deletion as root." >&2; exit 1; }
   read -r -p "Type DELETE $ROOT to irreversibly remove secrets, backups, and all data: " answer
