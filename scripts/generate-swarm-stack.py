@@ -66,7 +66,14 @@ def convert_secrets(model):
         path = Path(definition["file"])
         if not path.is_file():
             fail(f"Secret file is missing: {path}")
-        renamed = f"{key}_{hashlib.sha256(path.read_bytes()).hexdigest()[:8]}"
+        data = path.read_bytes()
+        if not data:
+            # Swarm rejects empty secrets; a single newline is stripped by the entrypoints' $(cat ...).
+            path = path.with_name(path.name + ".swarm")
+            path.write_bytes(b"\n")
+            path.chmod(0o644)
+            data = b"\n"
+        renamed = f"{key}_{hashlib.sha256(data).hexdigest()[:8]}"
         renames[key] = renamed
         secrets[renamed] = {"file": str(path)}
     return renames, secrets
