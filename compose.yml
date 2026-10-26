@@ -195,6 +195,12 @@ services:
       redis:
         condition: service_healthy
     networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "ps aux | grep -q '[q]ueue:work'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     security_opt: ["no-new-privileges:true"]
 
   synapse:
