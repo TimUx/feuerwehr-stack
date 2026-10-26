@@ -51,6 +51,7 @@ for name, service in services.items():
         assert "create_host_path" not in volume.get("bind", {}), (name, volume)
 labels = services["keycloak"]["deploy"]["labels"]
 assert labels["traefik.enable"] == "true"
+assert "traefik.docker.network" not in labels
 assert labels["traefik.swarm.network"] == "shared-proxy"
 assert labels["traefik.http.routers.fwstack-keycloak.middlewares"].startswith("frontend-security-chain@file,")
 assert "traefik.enable" not in services["postgres"]["deploy"].get("labels", {})

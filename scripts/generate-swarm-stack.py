@@ -97,6 +97,8 @@ def convert_service(service, node, renames, create_dirs):
     labels = service.pop("labels", None) or {}
     if isinstance(labels, list):
         labels = dict(item.split("=", 1) for item in labels)
+    # Traefik's swarm provider skips services that carry both docker and swarm labels.
+    labels.pop("traefik.docker.network", None)
     if labels:
         deploy.setdefault("labels", {}).update({k: str(v) for k, v in labels.items()})
 
