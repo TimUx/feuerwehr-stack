@@ -16,11 +16,22 @@ env_value() {
 
 IFS=',' read -r -a apps <<< "$apps_csv"
 vpn_ip=$(env_value VPN_BACKEND_IP)
+# Plain "docker compose" only loads override files that are listed in COMPOSE_FILE
+sync_compose_file() {
+  local files=compose.yml tmp
+  [[ ! -f "$root/compose.proxy.yml" ]] || files+=:compose.proxy.yml
+  [[ ! -f "$root/compose.remote.yml" ]] || files+=:compose.remote.yml
+  tmp=$(mktemp "$root/.env.XXXXXX")
+  { grep -v '^COMPOSE_FILE=' "$root/.env" || true; printf 'COMPOSE_FILE=%s\n' "$files"; } > "$tmp"
+  chmod 0600 "$tmp"
+  mv "$tmp" "$root/.env"
+}
+
 rm -f "$root/compose.proxy.yml" "$root/compose.remote.yml" \
   "$root/integrations/traefik/dynamic.yml"
 
 if [[ "$mode" == remote ]]; then
-  [[ "$routes" == true ]] || exit 0
+  [[ "$routes" == true ]] || { sync_compose_file; exit 0; }
   mkdir -p "$root/integrations/traefik"
   routers=$(mktemp)
   backends=$(mktemp)
@@ -87,10 +98,11 @@ EOF
     cat "$bindings"
   } > "$root/compose.remote.yml"
   chmod 0640 "$root/integrations/traefik/dynamic.yml" "$root/compose.remote.yml"
+  sync_compose_file
   exit 0
 fi
 
-[[ "$routes" == true ]] || exit 0
+[[ "$routes" == true ]] || { sync_compose_file; exit 0; }
 {
   printf 'services:\n'
   extra_middlewares=$(env_value TRAEFIK_MIDDLEWARES)
@@ -164,3 +176,4 @@ EOF
   fi
 } > "$root/compose.proxy.yml"
 chmod 0640 "$root/compose.proxy.yml"
+sync_compose_file
