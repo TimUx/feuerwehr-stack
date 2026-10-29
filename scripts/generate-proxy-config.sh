@@ -121,7 +121,8 @@ fi
       traefik.http.routers.fwstack-${service}.tls.certresolver: ${resolver}
       traefik.http.routers.fwstack-${service}.middlewares: "${chain}"
       traefik.http.middlewares.fwstack-${service}-headers.headers.customrequestheaders.X-Forwarded-Proto: https
-      traefik.http.services.${service}.loadbalancer.server.port: "${port}"
+      traefik.http.routers.fwstack-${service}.service: "fwstack-${service}"
+      traefik.http.services.fwstack-${service}.loadbalancer.server.port: "${port}"
 EOF
     if [[ "$mode" == same-host ]]; then
       cat <<'EOF'

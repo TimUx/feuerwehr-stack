@@ -79,6 +79,18 @@ if [[ "$ASSUME_YES" != true ]]; then
   [[ "$answer" == y || "$answer" == Y || "$answer" == yes || "$answer" == YES ]] || exit 1
 fi
 "$ROOT/scripts/backup.sh"
+# Regenerate proxy labels/routes so changes to generate-proxy-config.sh reach existing installs.
+proxy_value() { sed -n "s/^$1=//p" "$ROOT/.env" | head -n 1; }
+proxy_mode=$(proxy_value PROXY_MODE)
+if [[ -n "$proxy_mode" ]]; then
+  if [[ "$proxy_mode" == own || "$proxy_mode" == same-host ]]; then
+    proxy_args=("$proxy_mode" "$(proxy_value ENABLE_PROXY_ROUTES)" "$(proxy_value TRAEFIK_CERT_RESOLVER)"
+      "$(proxy_value TRAEFIK_NETWORK)" "$(proxy_value ACME_CHALLENGE)" "$(proxy_value ACME_DNS_PROVIDER)")
+  else
+    proxy_args=(remote "$(proxy_value ENABLE_PROXY_ROUTES)" "" "" http "")
+  fi
+  "$ROOT/scripts/generate-proxy-config.sh" "$ROOT" "$(proxy_value ENABLED_APPS)" "${proxy_args[@]}"
+fi
 # shellcheck source=scripts/lib.sh
 source "$ROOT/scripts/lib.sh"
 target_postgres_image=$("${compose[@]}" config --format json |
@@ -101,6 +113,26 @@ if [[ -f "$ROOT/postgres/data/PG_VERSION" ]]; then
     fi
     bash "$ROOT/scripts/migrate-postgres.sh" "$target_postgres_image" "$source_major" "$target_major"
   fi
+fi
+if [[ ",$(env_value COMPOSE_PROFILES)," == *,onlyoffice,* ]]; then
+  # A persisted /var/lib/onlyoffice from an older image mixes versions (404 on web-apps assets).
+  oo_image=$("${compose[@]}" config --format json |
+    python3 -c 'import json, sys; print(json.load(sys.stdin)["services"]["onlyoffice"]["image"])')
+  oo_id=$(docker image inspect --format '{{.Id}}' "$oo_image")
+  oo_root=$(env_value STACK_ROOT)
+  oo_root=${oo_root:-$ROOT}
+  oo_marker="$oo_root/onlyoffice/.image-id"
+  if [[ -d "$oo_root/onlyoffice/lib" && "$(cat "$oo_marker" 2>/dev/null || true)" != "$oo_id" ]]; then
+    echo "ONLYOFFICE image changed; resetting generated files in onlyoffice/lib (keeping App_Data)."
+    if [[ "$DEPLOY_MODE" == swarm ]]; then
+      docker service scale "${STACK_NAME}_onlyoffice=0" >/dev/null 2>&1 || true
+    else
+      "${compose[@]}" stop onlyoffice
+    fi
+    docker run --rm --entrypoint /bin/bash -v "$oo_root/onlyoffice/lib:/lib-reset" "$oo_image" -c \
+      'find /lib-reset -mindepth 1 -maxdepth 2 ! -path "*/App_Data" ! -path "*/App_Data/*" -not -path /lib-reset/documentserver -exec rm -rf -- {} + 2>/dev/null; true'
+  fi
+  printf '%s\n' "$oo_id" >"$oo_marker"
 fi
 if [[ "$DEPLOY_MODE" == swarm ]]; then
   deploy_stack --resolve-image always
