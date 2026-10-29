@@ -14,4 +14,5 @@ fi
 "$ROOT/tests/test_proxy_config.sh"
 "$ROOT/tests/test_compose_config.sh"
 "$ROOT/tests/test_swarm_stack.sh"
+"$ROOT/tests/test_update_script_refresh.sh"
 echo "All available repository tests passed."
