@@ -119,7 +119,8 @@ stop_applications() {
     while read -r service replicas; do
       [[ "$service" == "${STACK_NAME}_"* ]] || continue
       case "${service##*_}" in postgres|redis|traefik) continue ;; esac
-      [[ "${replicas%%/*}" =~ ^[0-9]+$ ]] && ((replicas%%/* > 0)) || continue
+      running=${replicas%%/*}
+      [[ "$running" =~ ^[0-9]+$ ]] && ((running > 0)) || continue
       app_services+=("$service")
       docker service scale "$service=0" >/dev/null
     done < <(docker stack services "$STACK_NAME" --format '{{.Name}} {{.Replicas}}')
