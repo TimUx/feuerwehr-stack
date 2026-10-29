@@ -55,6 +55,9 @@ MAIL_HOST=smtp.example.org
 MAIL_FROM_ADDRESS=admin@example.org
 WEHRPORTAL_ADMIN_EMAILS=admin@example.org
 EOF
+new_wehrportal_output=$("$ROOT/install.sh" --config "$tmp/wehrportal.env" --path "$tmp/new-wehrportal" --dry-run)
+grep -q 'Image release:  ghcr.io/timux/wehrportal:latest' <<< "$new_wehrportal_output"
+[[ ! -e "$tmp/new-wehrportal" ]]
 mkdir -p "$tmp/existing-postgres/postgres/data"
 printf '16\n' > "$tmp/existing-postgres/postgres/data/PG_VERSION"
 if "$ROOT/install.sh" --config "$tmp/wehrportal.env" --path "$tmp/existing-postgres" --dry-run >/dev/null 2>&1; then

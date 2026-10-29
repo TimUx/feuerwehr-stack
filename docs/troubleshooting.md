@@ -12,7 +12,7 @@ Prüfe, ob `compose.proxy.yml` bzw. `compose.remote.yml` generiert wurde, ob `ST
 
 ## WehrPortal startet nicht
 
-- Prüfe, ob `.env` einen veröffentlichten festen `WEHRPORTAL_IMAGE_TAG` enthält und `docker manifest inspect ghcr.io/timux/wehrportal:<Tag>` erfolgreich ist.
+- Prüfe, ob `WEHRPORTAL_IMAGE_TAG` in `.env` auf ein verfügbares Image zeigt und `docker manifest inspect ghcr.io/timux/wehrportal:<Tag>` erfolgreich ist. Standard ist `latest`.
 - `APP_KEY`, `DB_PASSWORD`, `MAIL_PASSWORD` werden beim Containerstart aus Secrets geladen.
 - PostgreSQL muss gesund sein; WehrPortal führt Migrationen und Scheduler im Produktionscontainer selbst aus.
 - Magic-Link-Anmeldung benötigt erreichbares SMTP. Konfiguration in `.env`, Passwort in `secrets/mail_smtp_password`.

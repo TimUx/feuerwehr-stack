@@ -7,6 +7,14 @@ mkdir -p "$ROOT/backups"
 chmod 0700 "$ROOT/backups"
 # shellcheck source=scripts/lib.sh
 source "$ROOT/scripts/lib.sh"
+if [[ "$DEPLOY_MODE" == swarm ]]; then
+  postgres_container=$(swarm_container postgres)
+else
+  postgres_container=$("${compose[@]}" ps -q postgres)
+fi
+[[ -n "$postgres_container" ]] || { echo "PostgreSQL container is not running." >&2; exit 1; }
+postgres_image=$(docker inspect --format '{{.Config.Image}}' "$postgres_container")
+postgres_version=$(pg_exec psql -X -U postgres -d postgres -Atqc 'SHOW server_version')
 apps=$(sed -n 's/^ENABLED_APPS=//p' "$ROOT/.env" | head -n 1)
 IFS=',' read -r -a selected_apps <<< "$apps"
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
@@ -68,7 +76,8 @@ cat > "$staging/manifest.txt" <<EOF
 created_utc=$stamp
 enabled_apps=$apps
 database_format=pg_dump-custom
-postgres_image=postgres:16.6-alpine
+postgres_image=$postgres_image
+postgres_version=$postgres_version
 EOF
 chmod 0600 "$staging/manifest.txt" "$staging/files.tar.gz"
 archive="$ROOT/backups/feuerwehr-$stamp.tar.gz"

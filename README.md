@@ -8,9 +8,9 @@ Modularer Docker-Compose-Stack für eine einzelne Debian-/Ubuntu-Maschine. Der I
 | --- | --- |
 | Installer, Profile, sichere lokale Secrets und Compose-Konfiguration | Implementiert; Syntax- und Compose-Modelltests vorhanden |
 | Eigener Traefik, vorhandener Traefik auf demselben Docker-Host, entfernter Traefik über VPN | Konfiguration wird je Modus erzeugt; produktive DNS-/TLS-/VPN-Verbindungen hier nicht getestet |
-| PostgreSQL mit getrennten Datenbanken/Rollen | Implementiert; WehrPortal benötigt PostgreSQL im Betrieb und führt Migrationen beim Containerstart aus |
+| PostgreSQL mit getrennten Datenbanken/Rollen | Implementiert; `scripts/update.sh` erstellt vor Major-Upgrades einen vollständigen Dump und migriert das Cluster logisch |
 | Keycloak | Container und Bootstrap-Zugang vorbereitet; Realm und OIDC-Clients werden bewusst manuell eingerichtet |
-| WehrPortal | Produktions-Release-Image von `ghcr.io/timux/wehrportal`, PostgreSQL, Redis, Queue-Worker, persistentes Storage und SMTP |
+| WehrPortal | Produktions-Image `ghcr.io/timux/wehrportal:latest` (Tag in `.env`), PostgreSQL, Redis, Queue-Worker, persistentes Storage und SMTP |
 | Matrix Synapse und FluffyChat Web | Synapse-Konfiguration wird beim ersten Start erzeugt und auf PostgreSQL gesetzt; Registrierung ist aus |
 | ONLYOFFICE Docs | JWT wird aus einer Secret-Datei geladen; Containerpfade folgen der offiziellen Community-Image-Dokumentation |
 | GRAV | LinuxServer-Image mit persistentem `/config`-Mount |
@@ -23,7 +23,7 @@ Die Repository-Tests starten keine Container und testen keine externen Dienste. 
 
 - Unterstütztes Betriebssystem laut Installer: Debian, Ubuntu oder Raspbian; Docker Engine und Docker Compose Plugin v2 müssen bereits installiert und erreichbar sein. Der Installer installiert Docker nicht.
 - Root-Rechte (`sudo`) für Installation und Host-Verzeichnisse.
-- Für WehrPortal zusätzlich `curl` und Python 3 zur Release-Prüfung; der Online-Einzeiler benötigt `curl` und `tar`.
+- Für WehrPortal muss das Image `ghcr.io/timux/wehrportal:latest` in GHCR verfügbar sein; explizite Release-Tags werden zusätzlich über GitHub verifiziert.
 - Mindestens 5 GiB freier Speicher; bei ausgewähltem ONLYOFFICE mindestens 8 GiB. ONLYOFFICE empfiehlt außerdem mindestens 4 GiB RAM.
 - DNS-Einträge für alle aktivierten Anwendungen. Beim eigenen Traefik müssen TCP 80 und 443 öffentlich zum Host führen.
 - Für WehrPortal: SMTP-Zugangsdaten. Der Installer ermittelt das neueste GitHub-Release und prüft, ob das dazugehörige GHCR-Image verfügbar ist. Er speichert anschließend den konkreten Versionstag in `.env`; ein nicht veröffentlichtes Image führt zum Abbruch.
@@ -68,8 +68,9 @@ bash -c 'set -Eeuo pipefail; tmp=$(mktemp -d); trap '\''rm -rf -- "$tmp"'\'' EXI
 Der Installer kontrolliert Betriebssystem-ID, Root-Rechte, Docker/Compose-Erreichbarkeit, Speicherplatz und bei eigenem Traefik die Hostports. Bei vorhandenen Traefik-Netzwerken prüft er den exakten Netzwerknamen. DNS-Auflösung wird als Warnung angezeigt, wenn `getent` verfügbar ist. Er verändert keine Docker-Netzwerke und überschreibt keine vorhandenen Secret-Dateien. Ein nicht leeres Ziel ohne Stack-`.env` wird abgelehnt.
 Bei erneuten Installationsläufen aktualisiert der Installer die Stack-Dateien `compose.yml` und `scripts/*` automatisch aus dem Repository-Stand. Vor dem Ersetzen von `compose.yml` wird bei Änderungen eine Sicherung als `compose.yml.bak` erzeugt.
 Zusätzlich fragt der Installer ein Gesamtbudget für RAM (`STACK_MAX_MEMORY_MB`) und CPU (`STACK_MAX_CPUS`) ab, verteilt es auf die aktiven Dienste und schreibt die resultierenden `MEM_*`-/`CPU_*`-Werte in `.env`.
+Findet der Installer bereits PostgreSQL-Daten, führt er den Start über `scripts/update.sh` aus, damit ein Major-Version-Wechsel zuerst gesichert und migriert wird.
 
-WehrPortal wird ausschließlich als verifiziertes Release-Image `ghcr.io/timux/wehrportal:vX.Y...` gestartet. Der Installer liest den aktuellen veröffentlichten Release-Tag von GitHub, prüft zusätzlich das exakt getaggte Image in GHCR und schreibt den festen Tag in `.env`. Gibt es kein Release oder kein dazugehöriges Image, bricht die Installation vor Änderungen am Host ab. Es gibt keinen `latest`-, Quellcode- oder Fremd-Repository-Fallback. Updates behalten den festgeschriebenen Tag, bis er bewusst geändert wird.
+WehrPortal wird standardmäßig als `ghcr.io/timux/wehrportal:latest` gestartet; der Installer prüft, ob dieses Image in GHCR verfügbar ist, und schreibt `WEHRPORTAL_IMAGE_TAG=latest` in `.env`. Ein expliziter veröffentlichter Versionstag bleibt möglich und wird über GitHub und GHCR verifiziert.
 
 WehrPortal ist eine Neuinstallation ohne Übernahme von OpenWehr-Bestandsdaten. Ein vorhandenes Stack-Verzeichnis mit OpenWehr-Konfiguration oder PostgreSQL-Daten wird nicht überschrieben oder migriert; für WehrPortal ist ein separater, leerer Installationspfad erforderlich. Die alte Installation und ihre Daten bleiben für einen manuellen Rückweg erhalten.
 
@@ -129,13 +130,13 @@ DNS-01 für den eigenen Traefik benötigt den Namen eines von Traefik unterstüt
 
 ### PostgreSQL und Redis
 
-PostgreSQL `16.6-alpine` hält `keycloak`, `wehrportal` und `synapse` mit getrennten Rollen. Datenbank und Rollen werden nur während der Initialisierung eines leeren Datenverzeichnisses angelegt; ein bestehender Cluster wird nicht automatisch migriert oder mit neuen Passwörtern überschrieben. PostgreSQL ist für WehrPortal zwingend erforderlich und nicht am Host veröffentlicht.
+PostgreSQL verwendet standardmäßig `postgres:latest` (derzeit Major-Version 18) und hält `keycloak`, `wehrportal` und `synapse` mit getrennten Rollen. Ein Major-Version-Wechsel kann das vorhandene Datenverzeichnis nicht direkt wiederverwenden: `scripts/update.sh` stoppt die Anwendungen, erstellt zusätzlich zum regulären Backup einen vollständigen `pg_dumpall`-Dump, restauriert ihn in ein neues Cluster und schaltet erst nach Datenbank-/Rollenvergleich um. Die alte Datendatei bleibt für einen manuellen Rückweg erhalten. Das Upgrade benötigt zusätzliche Plattenkapazität und verursacht Downtime; ein Downgrade wird abgelehnt. `PGDATA` ist explizit gesetzt, damit der von PostgreSQL 18 geänderte Standardpfad die bestehende Mount-Struktur nicht verändert.
 
 Redis `7.4.2-alpine` dient WehrPortal als Cache und Queue, nicht als fachliche Datenbank. Es ist intern und nicht persistent: Cache-Inhalte und noch nicht verarbeitete Queue-Jobs können bei Redis-Neustart verloren gehen.
 
 ### Keycloak
 
-Keycloak `26.1.4` nutzt PostgreSQL und die externe HTTPS-URL aus `KEYCLOAK_HOST`. Nach dem ersten Start: anmelden, Realm und getrennte Clients für tatsächlich integrierte Anwendungen anlegen und Redirect-URIs eng begrenzen. WehrPortal-OIDC, Matrix-OIDC und GRAV-SSO sind derzeit nicht fertig integriert. Ein erfolgreicher Login darf keine fachlichen Administratorrechte implizieren.
+Keycloak `latest` nutzt PostgreSQL und die externe HTTPS-URL aus `KEYCLOAK_HOST`. Nach dem ersten Start: anmelden, Realm und getrennte Clients für tatsächlich integrierte Anwendungen anlegen und Redirect-URIs eng begrenzen. WehrPortal-OIDC, Matrix-OIDC und GRAV-SSO sind derzeit nicht fertig integriert. Ein erfolgreicher Login darf keine fachlichen Administratorrechte implizieren.
 
 ### WehrPortal
 
@@ -147,17 +148,17 @@ WehrPortal-OIDC und ONLYOFFICE-Callbacks sind nicht implementiert. Uploads, loka
 
 ### Matrix Synapse und FluffyChat Web
 
-Synapse `v1.125.0` speichert Medien und Konfiguration unter `matrix/data`; die beim ersten Start erzeugte Konfiguration wird auf PostgreSQL gesetzt, Statistiken und offene Registrierung sind deaktiviert. Federation ist standardmäßig aus; `MATRIX_FEDERATION=true` erlaubt Synapse Federation, ersetzt aber keine DNS-, Firewall- oder Well-known-Konfiguration.
+Synapse `latest` speichert Medien und Konfiguration unter `matrix/data`; die beim ersten Start erzeugte Konfiguration wird auf PostgreSQL gesetzt, Statistiken und offene Registrierung sind deaktiviert. Federation ist standardmäßig aus; `MATRIX_FEDERATION=true` erlaubt Synapse Federation, ersetzt aber keine DNS-, Firewall- oder Well-known-Konfiguration.
 
-FluffyChat Web `v2.10.0` wird als statischer Webclient aus `ghcr.io/etkecc/fluffychat-web` bereitgestellt. Seine `config.json` setzt `defaultHomeserver` auf `MATRIX_HOST`. FluffyChat-SSO/OIDC mit Synapse und Keycloak ist nicht fertig eingerichtet und darf nicht als verfügbar angenommen werden.
+FluffyChat Web `latest` wird als statischer Webclient aus `ghcr.io/etkecc/fluffychat-web` bereitgestellt. Seine `config.json` setzt `defaultHomeserver` auf `MATRIX_HOST`. FluffyChat-SSO/OIDC mit Synapse und Keycloak ist nicht fertig eingerichtet und darf nicht als verfügbar angenommen werden.
 
 `MATRIX_SERVER_NAME` ist die Matrix-Identität und kann von `MATRIX_HOST` abweichen. In diesem Fall müssen die Matrix-`/.well-known`-Dokumente und DNS gezielt eingerichtet werden. Der Stack erzeugt sie nicht.
 
 ### ONLYOFFICE und GRAV
 
-ONLYOFFICE Community `8.3.3.1` nutzt die offiziellen persistenten Pfade `/var/log/onlyoffice`, `/var/www/onlyoffice/Data` und `/var/lib/onlyoffice`. JWT ist aktiviert. Eine vollständige Einbindung braucht eine Anwendung, die Dokumente von außen abrufbar macht, JWT prüft und Save-Callbacks verarbeitet; das ist in WehrPortal derzeit nicht implementiert.
+ONLYOFFICE Community `latest` nutzt die offiziellen persistenten Pfade `/var/log/onlyoffice`, `/var/www/onlyoffice/Data` und `/var/lib/onlyoffice`. JWT ist aktiviert. Eine vollständige Einbindung braucht eine Anwendung, die Dokumente von außen abrufbar macht, JWT prüft und Save-Callbacks verarbeitet; das ist in WehrPortal derzeit nicht implementiert.
 
-GRAV wird mit LinuxServer `version-1.7.48` und persistentem `/config` betrieben. Der Adminbereich ist nicht automatisch durch Keycloak geschützt. GRAV-SSO ist nicht integriert.
+GRAV wird mit LinuxServer `latest` und persistentem `/config` betrieben. Der Adminbereich ist nicht automatisch durch Keycloak geschützt. GRAV-SSO ist nicht integriert.
 
 ## Sicherung, Wiederherstellung, Update und Entfernen
 
@@ -165,16 +166,16 @@ Siehe [`docs/backup-restore.md`](docs/backup-restore.md), [`docs/migration.md`](
 
 - Backup: `scripts/backup.sh` stoppt kurz die laufenden App-Container, erstellt konsistente PostgreSQL-Custom-Dumps und sichert Dateien, Konfigurationen und Secrets. Das Backup enthält Geheimnisse und ist Modus `0600`; sichere es zusätzlich verschlüsselt und extern. Redis-Daten sind nicht enthalten.
 - Restore: nur auf einem Zielsystem ausführen, dessen Daten überschrieben werden dürfen. Es wird interaktiv bestätigt und nicht automatisch während der Installation ausgelöst.
-- Update: `scripts/update.sh` sichert zuerst und zieht die in Compose festgelegten Images. WehrPortal bleibt auf dem installierten Release-Tag; Migrationen laufen beim Start des WehrPortal-Produktionscontainers.
+- Update: `scripts/update.sh` sichert zuerst und zieht die `latest`-Images. Bei einem PostgreSQL-Major-Wechsel wird zusätzlich ein vollständiger Cluster-Dump erstellt und in ein neues Cluster migriert. WehrPortal-Migrationen laufen beim Start des Produktionscontainers.
 - Deinstallation: `scripts/uninstall.sh` entfernt standardmäßig nur Compose-Container und Stack-Netzwerke. Nur `--delete-data` plus Eingabe des exakten Pfads löscht Backups, Secrets und persistente Daten.
 
 ## Fehlerbehebung und bekannte Einschränkungen
 
 - `scripts/validate.sh` prüft Compose-Konfiguration und Dateirechte; `scripts/healthcheck.sh` zeigt Compose-Zustände.
 - WehrPortal- und Synapse-Container starten nach `--no-start` erst, wenn ein veröffentlichtes WehrPortal-Image verfügbar ist bzw. `homeserver.yaml` vorhanden ist. Fehlermeldungen und manuelle Vorbereitung: [`docs/troubleshooting.md`](docs/troubleshooting.md).
-- Der Installer prüft keine DNS-Ziel-IP gegen den Host. Das konkrete WehrPortal-Release-Image wird vor Hoständerungen in GHCR geprüft; andere Registry-Erreichbarkeit wird nicht vorab getestet. Betriebssystempakete werden nicht installiert.
+- Der Installer prüft keine DNS-Ziel-IP gegen den Host. Das WehrPortal-Image wird vor Hoständerungen in GHCR geprüft; andere Registry-Erreichbarkeit wird nicht vorab getestet. Betriebssystempakete werden nicht installiert.
 - Matrix-Federation, OIDC, ONLYOFFICE-Dokument-Callbacks, GRAV-SSO, externe SMTP-Erreichbarkeit und Traefik-VPN-Routen benötigen separate Integrationstests.
-- Compose-Dateien verwenden feste Versions-Tags; Tags sind nicht zwangsläufig unveränderliche Image-Digests. Prüfe Images vor Produktionsupdates.
+- Compose verwendet überwiegend bewegliche `latest`-Tags. Ein Update kann deshalb auch inkompatible Major-Releases anderer Anwendungen einführen; prüfe regelmäßig Release-Hinweise und halte externe, verschlüsselte Backups bereit. PostgreSQL-Downgrades bleiben manuell.
 
 ## Prüfungen
 
