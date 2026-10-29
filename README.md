@@ -166,7 +166,7 @@ Siehe [`docs/backup-restore.md`](docs/backup-restore.md), [`docs/migration.md`](
 
 - Backup: `scripts/backup.sh` stoppt kurz die laufenden App-Container, erstellt konsistente PostgreSQL-Custom-Dumps und sichert Dateien, Konfigurationen und Secrets. Das Backup enthält Geheimnisse und ist Modus `0600`; sichere es zusätzlich verschlüsselt und extern. Redis-Daten sind nicht enthalten.
 - Restore: nur auf einem Zielsystem ausführen, dessen Daten überschrieben werden dürfen. Es wird interaktiv bestätigt und nicht automatisch während der Installation ausgelöst.
-- Update: `scripts/update.sh` sichert zuerst und zieht die `latest`-Images. Bei einem PostgreSQL-Major-Wechsel wird zusätzlich ein vollständiger Cluster-Dump erstellt und in ein neues Cluster migriert. WehrPortal-Migrationen laufen beim Start des Produktionscontainers.
+- Update: `scripts/update.sh` aktualisiert zuerst `compose.yml` und die verwalteten Skripte aus `main` und startet sich nach einem eigenen Update neu. Danach sichert es die Daten und zieht die konfigurierten Images. Bei einem PostgreSQL-Major-Wechsel wird zusätzlich ein vollständiger Cluster-Dump erstellt und in ein neues Cluster migriert. WehrPortal-Migrationen laufen beim Start des Produktionscontainers.
 - Deinstallation: `scripts/uninstall.sh` entfernt standardmäßig nur Compose-Container und Stack-Netzwerke. Nur `--delete-data` plus Eingabe des exakten Pfads löscht Backups, Secrets und persistente Daten.
 
 ## Fehlerbehebung und bekannte Einschränkungen
