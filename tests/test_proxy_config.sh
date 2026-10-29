@@ -23,6 +23,8 @@ EOF
 
 "$ROOT/scripts/generate-proxy-config.sh" "$tmp" keycloak,wehrportal,matrix own true feuerwehr "" http ""
 grep -q 'fwstack-keycloak.rule' "$tmp/compose.proxy.yml"
+grep -q 'traefik.http.routers.fwstack-keycloak.service: "fwstack-keycloak"' "$tmp/compose.proxy.yml"
+grep -q 'traefik.http.services.fwstack-keycloak.loadbalancer.server.port' "$tmp/compose.proxy.yml"
 grep -q 'id.example.org' "$tmp/compose.proxy.yml"
 grep -q 'fwstack-synapse.rule' "$tmp/compose.proxy.yml"
 grep -q 'matrix.example.org' "$tmp/compose.proxy.yml"

@@ -260,7 +260,7 @@ services:
     entrypoint: ["/bin/bash", "/stack/onlyoffice-entrypoint.sh"]
     environment:
       JWT_ENABLED: "true"
-      JWT_HEADER: AuthorizationJwt
+      JWT_HEADER: Authorization
     secrets: [onlyoffice_jwt_secret]
     volumes:
       - ./scripts/onlyoffice-entrypoint.sh:/stack/onlyoffice-entrypoint.sh:ro
