@@ -2,7 +2,7 @@ name: feuerwehr
 
 services:
   postgres:
-    image: postgres:16.6-alpine
+    image: ${POSTGRES_IMAGE:-postgres:latest}
     profiles: [data]
     restart: unless-stopped
     mem_limit: ${MEM_POSTGRES:-1g}
@@ -10,6 +10,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_DB: postgres
+      PGDATA: /var/lib/postgresql/data
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_superuser_password
       KEYCLOAK_DB_PASSWORD_FILE: /run/secrets/keycloak_db_password
       WEHRPORTAL_DB_PASSWORD_FILE: /run/secrets/wehrportal_db_password
@@ -33,7 +34,7 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   redis:
-    image: redis:7.4.2-alpine
+    image: redis:latest
     profiles: [wehrportal]
     restart: unless-stopped
     mem_limit: ${MEM_REDIS:-256m}
@@ -48,7 +49,7 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.1.4
+    image: quay.io/keycloak/keycloak:latest
     profiles: [keycloak]
     restart: unless-stopped
     mem_limit: ${MEM_KEYCLOAK:-1g}
@@ -204,7 +205,7 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   synapse:
-    image: matrixdotorg/synapse:v1.125.0
+    image: matrixdotorg/synapse:latest
     profiles: [matrix]
     restart: unless-stopped
     mem_limit: ${MEM_SYNAPSE:-1g}
@@ -234,7 +235,7 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   fluffychat:
-    image: ghcr.io/etkecc/fluffychat-web:v2.10.0
+    image: ghcr.io/etkecc/fluffychat-web:latest
     profiles: [matrix]
     restart: unless-stopped
     mem_limit: ${MEM_FLUFFYCHAT:-128m}
@@ -251,7 +252,7 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   onlyoffice:
-    image: onlyoffice/documentserver:8.3.3.1
+    image: onlyoffice/documentserver:latest
     profiles: [onlyoffice]
     restart: unless-stopped
     mem_limit: ${MEM_ONLYOFFICE:-3g}
@@ -271,7 +272,7 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   grav:
-    image: lscr.io/linuxserver/grav:version-1.7.48
+    image: lscr.io/linuxserver/grav:latest
     profiles: [grav]
     restart: unless-stopped
     mem_limit: ${MEM_GRAV:-384m}
@@ -292,7 +293,7 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   traefik:
-    image: traefik:v3.3.4
+    image: traefik:latest
     profiles: [proxy]
     restart: unless-stopped
     mem_limit: ${MEM_TRAEFIK:-256m}

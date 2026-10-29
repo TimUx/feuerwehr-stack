@@ -31,7 +31,7 @@ Options:
 Config keys: INSTALL_PATH, BASE_DOMAIN, ACME_EMAIL, PROXY_MODE, ENABLED_APPS,
 ENABLE_PROXY_ROUTES, TRAEFIK_NETWORK, TRAEFIK_CERT_RESOLVER, DEPLOY_MODE, TRAEFIK_MIDDLEWARES, STACK_MAX_MEMORY_MB, STACK_MAX_CPUS, ACME_CHALLENGE,
 ACME_DNS_PROVIDER, ACME_DNS_ENV_FILE, MATRIX_SERVER_NAME, MATRIX_FEDERATION,
-VPN_BACKEND_IP, KEYCLOAK_HOST, WEHRPORTAL_HOST, WEHRPORTAL_IMAGE_TAG, MATRIX_HOST, FLUFFYCHAT_HOST,
+VPN_BACKEND_IP, KEYCLOAK_HOST, WEHRPORTAL_HOST, WEHRPORTAL_IMAGE_TAG, POSTGRES_IMAGE, MATRIX_HOST, FLUFFYCHAT_HOST,
 ONLYOFFICE_HOST, GRAV_HOST, KEYCLOAK_ADMIN_USER, MAIL_HOST,
 MAIL_PORT, MAIL_USERNAME, MAIL_ENCRYPTION, MAIL_FROM_ADDRESS, MAIL_FROM_NAME,
 KEYCLOAK_PORT, WEHRPORTAL_PORT, MATRIX_PORT, FLUFFYCHAT_PORT, ONLYOFFICE_PORT,
@@ -57,7 +57,7 @@ done
 
 for key in INSTALL_PATH BASE_DOMAIN ACME_EMAIL PROXY_MODE ENABLED_APPS ENABLE_PROXY_ROUTES \
   DEPLOY_MODE TRAEFIK_NETWORK TRAEFIK_CERT_RESOLVER TRAEFIK_MIDDLEWARES STACK_MAX_MEMORY_MB STACK_MAX_CPUS ACME_CHALLENGE ACME_DNS_PROVIDER ACME_DNS_ENV_FILE \
-  MATRIX_SERVER_NAME MATRIX_FEDERATION VPN_BACKEND_IP KEYCLOAK_HOST WEHRPORTAL_HOST WEHRPORTAL_IMAGE_TAG MATRIX_HOST \
+  MATRIX_SERVER_NAME MATRIX_FEDERATION VPN_BACKEND_IP KEYCLOAK_HOST WEHRPORTAL_HOST WEHRPORTAL_IMAGE_TAG POSTGRES_IMAGE MATRIX_HOST \
   ELEMENT_HOST FLUFFYCHAT_HOST ONLYOFFICE_HOST GRAV_HOST KEYCLOAK_ADMIN_USER MAIL_HOST MAIL_PORT \
   MAIL_USERNAME MAIL_ENCRYPTION MAIL_FROM_ADDRESS MAIL_FROM_NAME KEYCLOAK_PORT WEHRPORTAL_PORT \
   MATRIX_PORT ELEMENT_PORT FLUFFYCHAT_PORT ONLYOFFICE_PORT GRAV_PORT WEHRPORTAL_ADMIN_EMAILS; do
@@ -221,6 +221,10 @@ prompt MATRIX_FEDERATION "Matrix Federation aktivieren (true/false)" false
 prompt VPN_BACKEND_IP "VPN-IP des Backend-Hosts (Remote-Modus)" ""
 prompt KEYCLOAK_ADMIN_USER "Initialer Keycloak-Administrator" kcadmin
 prompt WEHRPORTAL_ADMIN_EMAILS "Initiale WehrPortal-Administrator-E-Mail(s), kommagetrennt" ""
+prompt WEHRPORTAL_IMAGE_TAG "WehrPortal Image-Tag" latest
+prompt POSTGRES_IMAGE "PostgreSQL Image" postgres:latest
+values[WEHRPORTAL_IMAGE_TAG]=${values[WEHRPORTAL_IMAGE_TAG]:-latest}
+values[POSTGRES_IMAGE]=${values[POSTGRES_IMAGE]:-postgres:latest}
 prompt MAIL_HOST "SMTP-Server für WehrPortal (Magic-Link-Anmeldung)" ""
 prompt MAIL_PORT "SMTP-Port" 587
 prompt MAIL_USERNAME "SMTP-Benutzername" ""
@@ -327,6 +331,7 @@ for key in BASE_DOMAIN KEYCLOAK_HOST WEHRPORTAL_HOST MATRIX_HOST FLUFFYCHAT_HOST
   valid_domain "${values[$key]}" || fail "Invalid domain: ${values[$key]}"
 done
 [[ "${values[KEYCLOAK_ADMIN_USER]}" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || fail "Invalid KEYCLOAK_ADMIN_USER"
+[[ "${values[POSTGRES_IMAGE]}" =~ ^[A-Za-z0-9._:/@-]+$ ]] || fail "Invalid POSTGRES_IMAGE"
 [[ "${values[MAIL_HOST]}" == "" || "${values[MAIL_HOST]}" =~ ^[A-Za-z0-9.-]+$ ]] || fail "Invalid MAIL_HOST"
 [[ "${values[MAIL_USERNAME]}" == "" || "${values[MAIL_USERNAME]}" =~ ^[A-Za-z0-9@._+-]+$ ]] ||
   fail "MAIL_USERNAME contains unsupported characters"
@@ -410,7 +415,7 @@ if [[ -n "${enabled[wehrportal]:-}" ]]; then
   existing_wehrportal=false
   if [[ -f "$INSTALL_PATH/.env" && -f "$INSTALL_PATH/secrets/wehrportal_app_key" ]] &&
       grep -Eq '^ENABLED_APPS=([^,]+,)*wehrportal(,|$)' "$INSTALL_PATH/.env" &&
-      grep -Eq '^WEHRPORTAL_IMAGE_TAG=v[0-9]+\.[0-9]+(\.[0-9]+){0,2}$' "$INSTALL_PATH/.env"; then
+      grep -Eq '^WEHRPORTAL_IMAGE_TAG=(latest|v[0-9]+\.[0-9]+(\.[0-9]+){0,2})$' "$INSTALL_PATH/.env"; then
     existing_wehrportal=true
   fi
   if [[ -f "$INSTALL_PATH/postgres/data/PG_VERSION" && "$existing_wehrportal" != true ]]; then
@@ -434,9 +439,15 @@ fi
 
 resolve_wehrportal_image() {
   local tag release_url release_json
+  tag=${values[WEHRPORTAL_IMAGE_TAG]:-latest}
+  if [[ "$tag" == latest ]]; then
+    docker manifest inspect "ghcr.io/timux/wehrportal:latest" >/dev/null 2>&1 ||
+      fail "The published WehrPortal image ghcr.io/timux/wehrportal:latest is unavailable."
+    values[WEHRPORTAL_IMAGE_TAG]=latest
+    return
+  fi
   command -v curl >/dev/null || fail "curl is required to verify the published WehrPortal release"
   command -v python3 >/dev/null || fail "python3 is required to read the published WehrPortal release metadata"
-  tag=${values[WEHRPORTAL_IMAGE_TAG]:-}
   if [[ -z "$tag" ]]; then
     release_url=https://api.github.com/repos/TimUx/WehrPortal/releases/latest
   else
@@ -540,7 +551,7 @@ for app in "${apps[@]}"; do profiles+=",${app}"; done
 values[STACK_ROOT]=$INSTALL_PATH
 values[COMPOSE_PROFILES]=$profiles
 values[ENABLED_APPS]=$(IFS=,; echo "${apps[*]}")
-values[WEHRPORTAL_IMAGE_TAG]=${values[WEHRPORTAL_IMAGE_TAG]:-}
+values[WEHRPORTAL_IMAGE_TAG]=${values[WEHRPORTAL_IMAGE_TAG]:-latest}
 start_services=yes
 if [[ "$DRY_RUN" == true ]]; then
   start_services='not run (dry-run)'
@@ -602,7 +613,7 @@ done
 install -d -m 0750 "$INSTALL_PATH/scripts"
 for file in compose.yml scripts/postgres-init.sh scripts/keycloak-entrypoint.sh scripts/wehrportal-entrypoint.sh \
   scripts/onlyoffice-entrypoint.sh scripts/generate-proxy-config.sh scripts/configure-synapse.py \
-  scripts/backup.sh scripts/restore.sh scripts/update.sh scripts/healthcheck.sh scripts/validate.sh \
+  scripts/backup.sh scripts/restore.sh scripts/update.sh scripts/migrate-postgres.sh scripts/healthcheck.sh scripts/validate.sh \
   scripts/uninstall.sh scripts/lib.sh scripts/generate-swarm-stack.py; do
   # Stack-managed files are refreshed on every run so updates reach existing installations
   if [[ -e "$INSTALL_PATH/$file" && "$file" == compose.yml ]] && ! cmp -s "$SCRIPT_DIR/$file" "$INSTALL_PATH/$file"; then
@@ -679,7 +690,8 @@ write_env() {
     for key in KEYCLOAK_HOST WEHRPORTAL_HOST MATRIX_HOST FLUFFYCHAT_HOST ONLYOFFICE_HOST GRAV_HOST KEYCLOAK_ADMIN_USER WEHRPORTAL_ADMIN_EMAILS; do
       printf '%s=%s\n' "$key" "${values[$key]}"
     done
-    printf 'WEHRPORTAL_IMAGE_TAG=%s\n' "${values[WEHRPORTAL_IMAGE_TAG]}"
+    printf 'WEHRPORTAL_IMAGE_TAG=%s\nPOSTGRES_IMAGE=%s\n' \
+      "${values[WEHRPORTAL_IMAGE_TAG]}" "${values[POSTGRES_IMAGE]}"
     printf 'VPN_BACKEND_IP=%s\nDEPLOY_MODE=%s\n' "${values[VPN_BACKEND_IP]}" "${values[DEPLOY_MODE]}"
     printf 'STACK_MAX_MEMORY_MB=%s\nSTACK_MAX_CPUS=%s\n' "${values[STACK_MAX_MEMORY_MB]}" "${values[STACK_MAX_CPUS]}"
     for name in "${!limit_mem[@]}"; do
@@ -732,7 +744,10 @@ if [[ "$NO_START" != true ]]; then
     # Drop the bridge networks created by "run" so the stack can create its overlay networks.
     [[ "${values[DEPLOY_MODE]}" != swarm ]] || "${run_compose[@]}" down >/dev/null
   fi
-  if [[ "${values[DEPLOY_MODE]}" == swarm ]]; then
+  if [[ -f "$INSTALL_PATH/postgres/data/PG_VERSION" ]]; then
+    info "Existing PostgreSQL data found; applying updates through the backup-protected update script."
+    bash "$INSTALL_PATH/scripts/update.sh" --yes
+  elif [[ "${values[DEPLOY_MODE]}" == swarm ]]; then
     ROOT=$INSTALL_PATH
     # shellcheck source=scripts/lib.sh
     . "$INSTALL_PATH/scripts/lib.sh"
@@ -742,5 +757,5 @@ if [[ "$NO_START" != true ]]; then
   fi
   info "Stack started. Check service health: $INSTALL_PATH/scripts/healthcheck.sh"
 else
-  info "Files prepared. Review $INSTALL_PATH/.env, then use the documented start command."
+  info "Files prepared. Review $INSTALL_PATH/.env, then run $INSTALL_PATH/scripts/update.sh before restarting an existing PostgreSQL cluster."
 fi

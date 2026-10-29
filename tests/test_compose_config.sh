@@ -64,8 +64,17 @@ assert portal["image"] == "ghcr.io/timux/wehrportal:test-only", portal["image"]
 assert portal["environment"]["AUTORUN_ENABLED"] == "true"
 assert "build" not in portal
 assert configuration["services"]["wehrportal-worker"]["image"] == portal["image"]
+assert configuration["services"]["postgres"]["image"] == "postgres:latest"
+assert configuration["services"]["redis"]["image"] == "redis:latest"
+assert configuration["services"]["keycloak"]["image"] == "quay.io/keycloak/keycloak:latest"
+assert configuration["services"]["synapse"]["image"] == "matrixdotorg/synapse:latest"
+assert configuration["services"]["fluffychat"]["image"] == "ghcr.io/etkecc/fluffychat-web:latest"
+assert configuration["services"]["onlyoffice"]["image"] == "onlyoffice/documentserver:latest"
+assert configuration["services"]["grav"]["image"] == "lscr.io/linuxserver/grav:latest"
+assert configuration["services"]["traefik"]["image"] == "traefik:latest"
 assert configuration["services"]["postgres"]["environment"]["WEHRPORTAL_DB_PASSWORD_FILE"] == \
     "/run/secrets/wehrportal_db_password"
+assert configuration["services"]["postgres"]["environment"]["PGDATA"] == "/var/lib/postgresql/data"
 published = {
     service: service_config.get("ports", [])
     for service, service_config in configuration["services"].items()

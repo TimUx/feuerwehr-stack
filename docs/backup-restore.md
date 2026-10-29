@@ -27,4 +27,4 @@ Prüfe anschließend Container-Health, Keycloak-Login, WehrPortal-Login und Mail
 
 ## Backup-Restore-Test
 
-Regelmäßig auf einem separaten Testhost wiederherstellen. Das Skript erzwingt keine Wiederherstellung in einen isolierten Host; ein falscher Zielpfad kann produktive Daten überschreiben. Eine Wiederherstellung über unterschiedliche PostgreSQL-Major-Versionen ist nicht zugesichert; zuerst gleiche Image-Version verwenden und Major-Upgrades separat planen.
+Regelmäßig auf einem separaten Testhost wiederherstellen. Das Skript erzwingt keine Wiederherstellung in einen isolierten Host; ein falscher Zielpfad kann produktive Daten überschreiben. Ein reguläres App-Backup ist nicht für einen PostgreSQL-Major-Wechsel gedacht. `scripts/update.sh` erstellt vor einem erkannten Major-Upgrade zusätzlich einen vollständigen, komprimierten `pg_dumpall`-Cluster-Dump und restauriert diesen in ein neues Cluster. Die Migration stoppt Anwendungen, vergleicht danach Datenbanken und Login-Rollen und lässt das alte Datadir für einen Rückweg erhalten. Ein Downgrade wird abgelehnt. Vor dem Update trotzdem externes Backup und ausreichenden freien Speicher sicherstellen.
