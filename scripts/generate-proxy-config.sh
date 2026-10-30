@@ -71,7 +71,7 @@ EOF
         add_remote fluffychat "$(env_value FLUFFYCHAT_HOST)" "$(env_value FLUFFYCHAT_PORT)" 8080
         ;;
       onlyoffice) add_remote onlyoffice "$(env_value ONLYOFFICE_HOST)" "$(env_value ONLYOFFICE_PORT)" 80 ;;
-      grav) add_remote grav "$(env_value GRAV_HOST)" "$(env_value GRAV_PORT)" 80 ;;
+      drupal) add_remote drupal "$(env_value DRUPAL_HOST)" "$(env_value DRUPAL_PORT)" 80 ;;
     esac
   done
   {
@@ -140,7 +140,7 @@ EOF
         add_labels fluffychat "$(env_value FLUFFYCHAT_HOST)" 8080
         ;;
       onlyoffice) add_labels onlyoffice "$(env_value ONLYOFFICE_HOST)" 80 ;;
-      grav) add_labels grav "$(env_value GRAV_HOST)" 80 ;;
+      drupal) add_labels drupal "$(env_value DRUPAL_HOST)" 80 ;;
     esac
   done
   if [[ "$mode" == same-host ]]; then

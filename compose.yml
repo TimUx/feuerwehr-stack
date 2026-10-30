@@ -15,11 +15,13 @@ services:
       KEYCLOAK_DB_PASSWORD_FILE: /run/secrets/keycloak_db_password
       WEHRPORTAL_DB_PASSWORD_FILE: /run/secrets/wehrportal_db_password
       SYNAPSE_DB_PASSWORD_FILE: /run/secrets/synapse_db_password
+      DRUPAL_DB_PASSWORD_FILE: /run/secrets/drupal_db_password
     secrets:
       - postgres_superuser_password
       - keycloak_db_password
       - wehrportal_db_password
       - synapse_db_password
+      - drupal_db_password
     volumes:
       - ${STACK_ROOT:?Set STACK_ROOT}/postgres/data:/var/lib/postgresql/data
       - ./scripts/postgres-init.sh:/docker-entrypoint-initdb.d/10-feuerwehr-users.sh:ro
@@ -97,6 +99,12 @@ services:
       APP_ENV: production
       APP_DEBUG: "false"
       ADMIN_EMAILS: ${WEHRPORTAL_ADMIN_EMAILS:-}
+      OIDC_ENABLED: ${WEHRPORTAL_OIDC_ENABLED:-false}
+      OIDC_FORCE_DISABLED: ${WEHRPORTAL_OIDC_FORCE_DISABLED:-false}
+      WEHRPORTAL_HOST: ${WEHRPORTAL_HOST}
+      ONLYOFFICE_HOST: ${ONLYOFFICE_HOST}
+      KEYCLOAK_HOST: ${KEYCLOAK_HOST}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-feuerwehr}
       APP_URL: https://${WEHRPORTAL_HOST:?Set WEHRPORTAL_HOST}
       AUTORUN_ENABLED: "true"
       APP_TIMEZONE: Europe/Berlin
@@ -127,9 +135,11 @@ services:
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Feuerwehr}
     entrypoint: ["/bin/sh", "/stack/wehrportal-entrypoint.sh"]
     command: ["/init"]
-    secrets: [wehrportal_db_password, wehrportal_app_key, mail_smtp_password]
+    secrets: [wehrportal_db_password, wehrportal_app_key, mail_smtp_password, wehrportal_oidc_client_secret, onlyoffice_jwt_secret]
     volumes:
       - ./scripts/wehrportal-entrypoint.sh:/stack/wehrportal-entrypoint.sh:ro
+      - ./scripts/configure-wehrportal-oidc.php:/stack/configure-wehrportal-oidc.php:ro
+      - ./scripts/configure-wehrportal-office.php:/stack/configure-wehrportal-office.php:ro
       - ${STACK_ROOT}/wehrportal/storage/app:/var/www/html/storage/app
     depends_on:
       postgres:
@@ -156,6 +166,8 @@ services:
       APP_ENV: production
       APP_DEBUG: "false"
       ADMIN_EMAILS: ${WEHRPORTAL_ADMIN_EMAILS:-}
+      OIDC_ENABLED: ${WEHRPORTAL_OIDC_ENABLED:-false}
+      OIDC_FORCE_DISABLED: ${WEHRPORTAL_OIDC_FORCE_DISABLED:-false}
       APP_NAME: WehrPortal
       APP_URL: https://${WEHRPORTAL_HOST:?Set WEHRPORTAL_HOST}
       AUTORUN_ENABLED: "false"
@@ -215,12 +227,19 @@ services:
       SYNAPSE_SERVER_NAME: ${MATRIX_SERVER_NAME}
       SYNAPSE_REPORT_STATS: "no"
       MATRIX_FEDERATION: ${MATRIX_FEDERATION:-false}
+      MATRIX_HOST: ${MATRIX_HOST}
+      FLUFFYCHAT_HOST: ${FLUFFYCHAT_HOST}
+      MATRIX_OIDC_ENABLED: ${MATRIX_OIDC_ENABLED:-false}
+      KEYCLOAK_HOST: ${KEYCLOAK_HOST}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-feuerwehr}
       UID: "991"
       GID: "991"
-    secrets: [synapse_db_password]
+    entrypoint: ["/bin/sh", "/stack/synapse-entrypoint.sh"]
+    secrets: [synapse_db_password, synapse_oidc_client_secret]
     volumes:
       - ${STACK_ROOT}/matrix/data:/data
       - ./scripts/configure-synapse.py:/stack/configure_synapse.py:ro
+      - ./scripts/synapse-entrypoint.sh:/stack/synapse-entrypoint.sh:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -271,25 +290,41 @@ services:
     networks: [backend, frontend]
     security_opt: ["no-new-privileges:true"]
 
-  grav:
-    image: lscr.io/linuxserver/grav:latest
-    profiles: [grav]
+  drupal:
+    image: feuerwehr/drupal:11.4.11-1
+    build:
+      context: ./drupal
+    pull_policy: build
+    profiles: [drupal]
     restart: unless-stopped
-    mem_limit: ${MEM_GRAV:-384m}
-    cpus: ${CPU_GRAV:-0.50}
+    mem_limit: ${MEM_DRUPAL:-768m}
+    cpus: ${CPU_DRUPAL:-0.50}
     environment:
-      PUID: "1000"
-      PGID: "1000"
-      TZ: UTC
+      DRUPAL_HOST: ${DRUPAL_HOST:-www.example.org}
+      DRUPAL_ADMIN_EMAIL: ${DRUPAL_ADMIN_EMAIL:-admin@example.org}
+      DRUPAL_OIDC_ENABLED: ${DRUPAL_OIDC_ENABLED:-false}
+      KEYCLOAK_HOST: ${KEYCLOAK_HOST}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-feuerwehr}
+      TZ: Europe/Berlin
+    secrets:
+      - drupal_db_password
+      - drupal_hash_salt
+      - drupal_admin_password
+      - drupal_oidc_client_secret
     volumes:
-      - ${STACK_ROOT}/grav/config:/config
+      - ${STACK_ROOT}/drupal/files:/opt/drupal/web/sites/default/files
+      - ${STACK_ROOT}/drupal/private:/var/drupal/private
+    depends_on:
+      postgres:
+        condition: service_healthy
     expose: ["80"]
-    networks: [frontend]
+    networks: [backend, frontend]
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
+      test: ["CMD", "php", "-r", "$$c=stream_context_create(['http'=>['header'=>'Host: '.getenv('DRUPAL_HOST')]]); exit(@file_get_contents('http://127.0.0.1/user/login',false,$$c)===false?1:0);"]
       interval: 30s
       timeout: 5s
       retries: 5
+      start_period: 300s
     security_opt: ["no-new-privileges:true"]
 
   traefik:
@@ -332,8 +367,20 @@ secrets:
     file: ${STACK_ROOT}/secrets/wehrportal_db_password
   synapse_db_password:
     file: ${STACK_ROOT}/secrets/synapse_db_password
+  synapse_oidc_client_secret:
+    file: ${STACK_ROOT}/secrets/synapse_oidc_client_secret
   keycloak_admin_password:
     file: ${STACK_ROOT}/secrets/keycloak_admin_password
+  drupal_db_password:
+    file: ${STACK_ROOT}/secrets/drupal_db_password
+  drupal_hash_salt:
+    file: ${STACK_ROOT}/secrets/drupal_hash_salt
+  drupal_admin_password:
+    file: ${STACK_ROOT}/secrets/drupal_admin_password
+  drupal_oidc_client_secret:
+    file: ${STACK_ROOT}/secrets/drupal_oidc_client_secret
+  wehrportal_oidc_client_secret:
+    file: ${STACK_ROOT}/secrets/wehrportal_oidc_client_secret
   wehrportal_app_key:
     file: ${STACK_ROOT}/secrets/wehrportal_app_key
   onlyoffice_jwt_secret:

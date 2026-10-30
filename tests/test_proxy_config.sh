@@ -11,14 +11,14 @@ WEHRPORTAL_HOST=portal.example.org
 MATRIX_HOST=matrix.example.org
 FLUFFYCHAT_HOST=chat.example.org
 ONLYOFFICE_HOST=docs.example.org
-GRAV_HOST=www.example.org
+DRUPAL_HOST=www.example.org
 VPN_BACKEND_IP=10.20.0.5
 KEYCLOAK_PORT=18084
 WEHRPORTAL_PORT=18080
 MATRIX_PORT=18008
 FLUFFYCHAT_PORT=18081
 ONLYOFFICE_PORT=18082
-GRAV_PORT=18083
+DRUPAL_PORT=18083
 EOF
 
 "$ROOT/scripts/generate-proxy-config.sh" "$tmp" keycloak,wehrportal,matrix own true feuerwehr "" http ""
@@ -57,4 +57,12 @@ grep -q 'fluffychat' "$tmp/integrations/traefik/dynamic.yml"
 grep -q '18081:8080' "$tmp/compose.remote.yml"
 "$ROOT/scripts/generate-proxy-config.sh" "$tmp" matrix remote false "" "" http ""
 [[ ! -e "$tmp/compose.remote.yml" && ! -e "$tmp/integrations/traefik/dynamic.yml" ]]
+for mode in own same-host; do
+  "$ROOT/scripts/generate-proxy-config.sh" "$tmp" drupal "$mode" true le shared-proxy http ""
+  grep -Fq 'Host(`www.example.org`)' "$tmp/compose.proxy.yml"
+  grep -q 'fwstack-drupal.loadbalancer.server.port: "80"' "$tmp/compose.proxy.yml"
+done
+"$ROOT/scripts/generate-proxy-config.sh" "$tmp" drupal remote true "" "" http ""
+grep -q 'url: "http://10.20.0.5:18083"' "$tmp/integrations/traefik/dynamic.yml"
+grep -q '18083:80' "$tmp/compose.remote.yml"
 echo "Own, existing, and remote proxy configuration checks passed."

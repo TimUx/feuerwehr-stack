@@ -6,19 +6,23 @@ command -v docker >/dev/null || { echo "Docker CLI not available; Swarm stack te
 docker compose version >/dev/null 2>&1 || { echo "Compose plugin not available; Swarm stack test skipped."; exit 0; }
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT
-mkdir -p "$tmp"/{scripts,secrets,postgres/data,keycloak/providers,keycloak/themes,wehrportal/storage/app,matrix/data,fluffychat,onlyoffice/logs,onlyoffice/data,onlyoffice/lib,grav/config}
+mkdir -p "$tmp"/{scripts,secrets,postgres/data,keycloak/providers,keycloak/themes,wehrportal/storage/app,matrix/data,fluffychat,onlyoffice/logs,onlyoffice/data,onlyoffice/lib,drupal/config}
 cp "$ROOT/compose.yml" "$tmp/"
 cp "$ROOT"/scripts/* "$tmp/scripts/"
 for name in postgres_superuser_password keycloak_db_password wehrportal_db_password synapse_db_password \
-  keycloak_admin_password wehrportal_app_key onlyoffice_jwt_secret mail_smtp_password; do
+  keycloak_admin_password wehrportal_app_key onlyoffice_jwt_secret mail_smtp_password \
+  drupal_db_password drupal_hash_salt drupal_admin_password drupal_oidc_client_secret wehrportal_oidc_client_secret synapse_oidc_client_secret; do
   printf 'test-only\n' > "$tmp/secrets/$name"
 done
 cat > "$tmp/.env" <<EOT
 STACK_ROOT=$tmp
-COMPOSE_PROFILES=data,keycloak,wehrportal,matrix,onlyoffice
+COMPOSE_PROFILES=data,keycloak,wehrportal,matrix,onlyoffice,drupal
+DRUPAL_HOST=www.example.org
 KEYCLOAK_HOST=id.example.org
 WEHRPORTAL_HOST=wehr.example.org
 WEHRPORTAL_IMAGE_TAG=test-only
+WEHRPORTAL_OIDC_ENABLED=true
+MATRIX_OIDC_ENABLED=true
 MATRIX_HOST=matrix.example.org
 FLUFFYCHAT_HOST=chat.example.org
 ONLYOFFICE_HOST=docs.example.org
@@ -28,7 +32,7 @@ TRAEFIK_MIDDLEWARES=frontend-security-chain@file
 DEPLOY_MODE=swarm
 EOT
 chmod 0600 "$tmp/.env"
-"$ROOT/scripts/generate-proxy-config.sh" "$tmp" keycloak,wehrportal,matrix,onlyoffice same-host true le shared-proxy http ""
+"$ROOT/scripts/generate-proxy-config.sh" "$tmp" keycloak,wehrportal,matrix,onlyoffice,drupal same-host true le shared-proxy http ""
 
 SWARM_NODE_ID=node-test python3 "$ROOT/scripts/generate-swarm-stack.py" "$tmp"
 python3 - "$tmp/stack.swarm.yml" <<'PY'
@@ -38,7 +42,16 @@ import sys
 stack = json.load(open(sys.argv[1], encoding="utf-8"))
 services = stack["services"]
 assert {"postgres", "redis", "keycloak", "wehrportal", "wehrportal-worker", "synapse", "fluffychat",
-        "onlyoffice"} <= set(services), sorted(services)
+        "onlyoffice", "drupal"} <= set(services), sorted(services)
+assert "build" not in services["drupal"]
+assert services["wehrportal"]["environment"]["OIDC_ENABLED"] == "true"
+assert services["synapse"]["environment"]["MATRIX_OIDC_ENABLED"] == "true"
+assert services["synapse"]["entrypoint"] == ["/bin/sh", "/stack/synapse-entrypoint.sh"]
+assert any(s["target"] == "onlyoffice_jwt_secret" for s in services["wehrportal"]["secrets"])
+assert any(v["target"] == "/stack/configure-wehrportal-office.php" for v in services["wehrportal"]["volumes"])
+assert services["wehrportal-worker"]["environment"]["OIDC_ENABLED"] == "true"
+assert any(s["target"] == "wehrportal_oidc_client_secret" for s in services["wehrportal"]["secrets"])
+assert services["drupal"]["deploy"]["labels"]["traefik.http.routers.fwstack-drupal.rule"] == "Host(`www.example.org`)"
 for name, service in services.items():
     for option in ("depends_on", "profiles", "security_opt", "mem_limit", "cpus", "restart", "labels"):
         assert option not in service, (name, option)

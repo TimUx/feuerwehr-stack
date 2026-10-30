@@ -3,16 +3,19 @@ set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 ASSUME_YES=false
-if [[ "${1:-}" == --yes && $# -eq 1 ]]; then
-  ASSUME_YES=true
-elif (($#)); then
-  echo "Usage: $0 [--yes]" >&2
-  exit 2
-fi
+LOCAL_FILES=false
+for option in "$@"; do
+  case "$option" in
+    --yes) ASSUME_YES=true ;;
+    --local-files) LOCAL_FILES=true ;;
+    *) echo "Usage: $0 [--yes] [--local-files]" >&2; exit 2 ;;
+  esac
+done
 [[ -f "$ROOT/.env" ]] || { echo "Missing $ROOT/.env." >&2; exit 1; }
 [[ ! -L "$ROOT/scripts" && ! -L "$ROOT/compose.yml" ]] ||
   { echo "Refusing to update through symlinked stack paths." >&2; exit 1; }
 
+if [[ "$LOCAL_FILES" != true ]]; then
 if ! command -v curl >/dev/null 2>&1; then
   echo "curl is required to check for updated stack scripts." >&2
   exit 1
@@ -29,6 +32,11 @@ managed_files=(
   scripts/onlyoffice-entrypoint.sh
   scripts/generate-proxy-config.sh
   scripts/configure-synapse.py
+  scripts/synapse-entrypoint.sh
+  scripts/setup-synapse.sh
+  scripts/setup-wehrportal-office.sh
+  scripts/configure-wehrportal-office.php
+  scripts/installation-summary.sh
   scripts/backup.sh
   scripts/restore.sh
   scripts/migrate-postgres.sh
@@ -37,6 +45,18 @@ managed_files=(
   scripts/uninstall.sh
   scripts/lib.sh
   scripts/generate-swarm-stack.py
+  scripts/setup-drupal.sh
+  scripts/setup-apps.sh
+  scripts/setup-wehrportal.sh
+  scripts/configure-wehrportal-oidc.php
+  scripts/configure-keycloak.py
+  drupal/Dockerfile
+  drupal/.dockerignore
+  drupal/composer.json
+  drupal/composer.lock
+  drupal/settings.php
+  drupal/configure.php
+  drupal/entrypoint.sh
   scripts/update.sh
 )
 update_script_changed=false
@@ -60,6 +80,7 @@ for file in "${managed_files[@]}"; do
   mode=0644
   [[ "$file" != *.sh ]] || mode=0755
   chmod "$mode" "$staged_file"
+  mkdir -p -- "$(dirname -- "$ROOT/$file")"
   mv -f -- "$staged_file" "$ROOT/$file"
   echo "Updated $file from the repository."
   [[ "$file" != scripts/update.sh ]] || update_script_changed=true
@@ -71,6 +92,18 @@ if [[ "$update_script_changed" == true ]]; then
   trap - EXIT
   exec bash "$ROOT/scripts/update.sh" "$@"
 fi
+fi
+
+for name in drupal_db_password drupal_hash_salt drupal_admin_password drupal_oidc_client_secret wehrportal_oidc_client_secret synapse_oidc_client_secret; do
+  path="$ROOT/secrets/$name"
+  [[ ! -L "$path" ]] || { echo "Refusing symlinked application secret: $name" >&2; exit 1; }
+  if [[ ! -e "$path" ]]; then
+    (umask 077; openssl rand -hex 32 > "$path")
+    # Compose bind-mounted secrets must be readable by the container's service user.
+    chmod 0644 "$path"
+  fi
+  [[ -f "$path" && -s "$path" ]] || { echo "Missing or empty application secret: $name" >&2; exit 1; }
+done
 
 echo "Configured image tags:"
 grep -E '^[[:space:]]+image:' "$ROOT/compose.yml" || true
@@ -78,7 +111,11 @@ if [[ "$ASSUME_YES" != true ]]; then
   read -r -p "Create backup and update configured images? [y/N] " answer
   [[ "$answer" == y || "$answer" == Y || "$answer" == yes || "$answer" == YES ]] || exit 1
 fi
-"$ROOT/scripts/backup.sh"
+if [[ -f "$ROOT/postgres/data/PG_VERSION" ]]; then
+  "$ROOT/scripts/backup.sh"
+else
+  echo "No PostgreSQL cluster exists yet; starting a fresh installation without a pre-install backup."
+fi
 # Regenerate proxy labels/routes so changes to generate-proxy-config.sh reach existing installs.
 proxy_value() { sed -n "s/^$1=//p" "$ROOT/.env" | head -n 1; }
 proxy_mode=$(proxy_value PROXY_MODE)
@@ -98,6 +135,9 @@ target_postgres_image=$("${compose[@]}" config --format json |
 [[ "$target_postgres_image" =~ ^[A-Za-z0-9._:/@-]+$ ]] ||
   { echo "Invalid PostgreSQL image in the resolved Compose configuration." >&2; exit 1; }
 "${compose[@]}" pull --ignore-buildable
+if [[ ",$(env_value ENABLED_APPS)," == *,drupal,* ]]; then
+  "${compose[@]}" build drupal
+fi
 target_version=$(docker run --rm --entrypoint postgres "$target_postgres_image" --version)
 [[ "$target_version" =~ PostgreSQL[^0-9]+([0-9]+)\. ]] ||
   { echo "Could not determine the target PostgreSQL version from: $target_version" >&2; exit 1; }
@@ -139,4 +179,5 @@ if [[ "$DEPLOY_MODE" == swarm ]]; then
 else
   "${compose[@]}" up -d
 fi
+"$ROOT/scripts/setup-apps.sh"
 "$ROOT/scripts/healthcheck.sh"
