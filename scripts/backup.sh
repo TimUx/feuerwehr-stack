@@ -64,8 +64,15 @@ for app in "${selected_apps[@]}"; do
     keycloak) db=keycloak ;;
     wehrportal) db=wehrportal ;;
     matrix) db=synapse ;;
+    drupal) db=drupal ;;
     *) continue ;;
   esac
+  if [[ "$db" == drupal && "$(pg_exec psql -X -U postgres -d postgres -Atqc \
+    "SELECT 1 FROM pg_database WHERE datname = 'drupal'")" != 1 ]]; then
+    echo "Drupal is selected but not provisioned yet; recording an uninstalled database in the backup."
+    touch "$staging/database/drupal.not-installed"
+    continue
+  fi
   pg_exec pg_dump -U postgres --no-owner --format=custom "$db" \
     > "$staging/database/${db}.dump"
   chmod 0600 "$staging/database/${db}.dump"

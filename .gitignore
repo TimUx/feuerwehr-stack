@@ -1,4 +1,6 @@
 .env
+installation-info.txt
+.installation-info.*
 .env.*
 !.env.example
 secrets/*
@@ -15,7 +17,8 @@ fluffychat/config.json
 onlyoffice/logs/*
 onlyoffice/data/*
 onlyoffice/lib/*
-grav/config/*
+drupal/files/*
+drupal/private/*
 traefik/acme/*
 compose.proxy.yml
 compose.remote.yml

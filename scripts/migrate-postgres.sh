@@ -264,6 +264,9 @@ reset_role_password postgres "$ROOT/secrets/postgres_superuser_password"
 for role in keycloak wehrportal synapse; do
   reset_role_password "$role" "$ROOT/secrets/${role}_db_password"
 done
+if [[ -f "$ROOT/secrets/drupal_db_password" ]]; then
+  reset_role_password drupal "$ROOT/secrets/drupal_db_password"
+fi
 
 docker exec "$candidate_name" psql -X -U postgres -d template1 -Atqc "$db_query" > "$candidate_data.restored-databases"
 docker exec "$candidate_name" psql -X -U postgres -d template1 -Atqc "$role_query" > "$candidate_data.restored-roles"

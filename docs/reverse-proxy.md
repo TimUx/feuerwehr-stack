@@ -9,7 +9,15 @@
 | Synapse Client-Server/Federation | `MATRIX_HOST` | 8008 |
 | FluffyChat Web | `FLUFFYCHAT_HOST` | 8080 |
 | ONLYOFFICE | `ONLYOFFICE_HOST` | 80 |
-| GRAV | `GRAV_HOST` | 80 |
+| Drupal | `DRUPAL_HOST` | 80 |
+
+Drupals OIDC-Callback ist `https://<DRUPAL_HOST>/openid-connect/generic`. Der Stack-Host und Drupal brauchen Zugriff auf Keycloaks öffentliche HTTPS-Adresse. Kein zusätzliches Proxy-Login vor diesen OIDC-Endpunkten schalten. Der Installer verwendet ausschließlich den exakten Callback, keine Redirect-Wildcards.
+
+WehrPortals OIDC-Callback ist `https://<WEHRPORTAL_HOST>/auth/oidc/callback`. Die Keycloak-Domain muss auch im Portal auf ausschließlich öffentliche IP-Adressen auflösen und über HTTPS-Port 443 erreichbar sein; private Split-DNS-/VPN-Adressen werden abgelehnt. Auch bei VPN-Backendanbindung müssen OIDC-Aufrufe den öffentlichen IdP-Endpunkt erreichen.
+
+Synapses OIDC-Callback ist `https://<MATRIX_HOST>/_synapse/client/oidc/callback`. Die vorhandene Hostroute leitet auch `/_synapse/` an Synapse weiter. Keycloak muss von Synapse und vom Stack-Host über gültiges HTTPS erreichbar sein. FluffyChat erhält den einmaligen Matrix-Login-Token auf seiner eigenen HTTPS-Domain, nicht auf einem Keycloak-Callback. Kein vorgeschaltetes Proxy-Login vor Matrix-API, Synapse-Callback oder Keycloak setzen.
+
+WehrPortals Dateien-Modul bindet den Editor unter `https://<ONLYOFFICE_HOST>` ein. Downloads und Save-Callbacks laufen über `https://<WEHRPORTAL_HOST>/dateien/office/onlyoffice/<Sitzungstoken>/datei` bzw. `/rueckruf`. Diese Endpunkte brauchen keine Browsersitzung, sondern Sitzungstoken und JWT; keine Proxy-SSO-Middleware davorschalten. ONLYOFFICE muss die öffentliche Portal-Adresse auflösen und mit gültigem HTTPS erreichen, auch bei Remote-Proxy/VPN oder Hairpin-NAT. Portal→ONLYOFFICE nutzt intern `http://onlyoffice`. TLS-Prüfung und Schutz vor privaten Downloadzielen bleiben produktiv aktiv.
 
 PostgreSQL und Redis besitzen keine Host-Portfreigabe. In den Modi `same-host` und `remote` gibt es keine automatische Hostportfreigabe für die internen Datenbanken.
 

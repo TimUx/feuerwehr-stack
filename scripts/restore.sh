@@ -19,7 +19,7 @@ tar --no-same-owner -xzf "$archive" -C "$staging"
    -f "$staging/manifest.txt" && ! -L "$staging/manifest.txt" &&
    -d "$staging/database" && ! -L "$staging/database" ]] ||
   { echo "Invalid backup archive." >&2; exit 1; }
-for db in keycloak wehrportal synapse; do
+for db in keycloak wehrportal synapse drupal; do
   dump="$staging/database/$db.dump"
   [[ ! -e "$dump" || (-f "$dump" && ! -L "$dump") ]] ||
     { echo "Unsafe database dump: $db" >&2; exit 1; }
@@ -68,8 +68,23 @@ chmod 0644 "$ROOT"/secrets/*
 # The restored .env may carry a different deployment mode.
 # shellcheck source=scripts/lib.sh
 source "$ROOT/scripts/lib.sh"
+if [[ ",$(env_value ENABLED_APPS)," == *,drupal,* ]]; then
+  "${compose[@]}" build drupal
+fi
 if [[ "$DEPLOY_MODE" == swarm ]]; then
-  deploy_stack
+  python3 "$ROOT/scripts/generate-swarm-stack.py" --create-bind-dirs "$ROOT"
+  python3 - "$ROOT/stack.swarm.yml" "$staging/restore-stack.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1]) as source:
+    stack = json.load(source)
+for name, service in stack["services"].items():
+    if name != "postgres":
+        service["deploy"]["replicas"] = 0
+with open(sys.argv[2], "w") as target:
+    json.dump(stack, target)
+PY
+  docker stack deploy --with-registry-auth -c "$staging/restore-stack.json" "$STACK_NAME"
 else
   "${compose[@]}" up -d postgres
 fi
@@ -87,22 +102,45 @@ for app in "${selected_apps[@]}"; do
     keycloak) db=keycloak; role=keycloak ;;
     wehrportal) db=wehrportal; role=wehrportal ;;
     matrix) db=synapse; role=synapse ;;
+    drupal) db=drupal; role=drupal ;;
     *) continue ;;
   esac
+  if [[ "$db" == drupal && -f "$staging/database/drupal.not-installed" &&
+        ! -L "$staging/database/drupal.not-installed" ]]; then
+    echo "Restoring uninstalled Drupal state; the next start will install a fresh site."
+    pg_exec dropdb -U postgres --if-exists --force drupal
+    continue
+  fi
   [[ -f "$staging/database/${db}.dump" ]] || { echo "Missing database dump: $db" >&2; exit 1; }
   secret="$ROOT/secrets/${role}_db_password"
   [[ -f "$secret" ]] || { echo "Missing restored secret for $role." >&2; exit 1; }
   pg_exec psql -U postgres -d postgres \
+    -v ON_ERROR_STOP=1 \
     --set=db_password="$(cat "$secret")" <<SQL
+SELECT format('CREATE ROLE %I LOGIN', '$role')
+WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$role') \\gexec
 SELECT format('ALTER ROLE %I PASSWORD %L', '$role', :'db_password') \\gexec
+SELECT format('CREATE DATABASE %I OWNER %I', '$db', '$role')
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$db') \\gexec
 SQL
+  if [[ "$db" == drupal || "$db" == wehrportal || "$db" == synapse ]]; then
+    # Application migrations must retain ownership of restored tables.
+    pg_exec dropdb -U postgres --if-exists --force "$db"
+    if [[ "$db" == synapse ]]; then
+      pg_exec createdb -U postgres --owner="$role" --template=template0 \
+        --encoding=UTF8 --lc-collate=C --lc-ctype=C "$db"
+    else
+      pg_exec createdb -U postgres --owner="$role" "$db"
+    fi
+    pg_exec pg_restore -U postgres --role="$role" --exit-on-error --no-owner \
+      --dbname "$db" < "$staging/database/$db.dump"
+    continue
+  fi
   pg_exec pg_restore -U postgres --clean --if-exists --no-owner \
     --dbname "$db" < "$staging/database/${db}.dump"
 done
 if [[ "$DEPLOY_MODE" == swarm ]]; then
-  while read -r service; do
-    [[ "$service" == "${STACK_NAME}_postgres" ]] || docker service update --force --detach=true "$service" >/dev/null
-  done < <(swarm_services)
+  deploy_stack
   for ((attempt = 0; attempt < 30; attempt++)); do
     "$ROOT/scripts/healthcheck.sh" >/dev/null 2>&1 && break
     sleep 10
@@ -110,5 +148,6 @@ if [[ "$DEPLOY_MODE" == swarm ]]; then
 else
   "${compose[@]}" up -d
 fi
+"$ROOT/scripts/setup-apps.sh"
 "$ROOT/scripts/healthcheck.sh"
 echo "Restore completed. Verify application login, uploaded files, and federation manually."
