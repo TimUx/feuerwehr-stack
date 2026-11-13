@@ -43,7 +43,8 @@ if os.environ.get("MATRIX_OIDC_ENABLED") == "true":
         "user_mapping_provider": {
             "config": {
                 "subject_claim": "sub",
-                "localpart_template": "{{ user.preferred_username }}",
+                # Keycloak may use e-mail addresses as usernames; keep the Matrix localpart readable.
+                "localpart_template": "{{ user.preferred_username.split('@')[0] }}",
                 "display_name_template": "{{ user.name }}",
             },
         },

@@ -27,6 +27,7 @@ class ProvisionTests(unittest.TestCase):
             "DRUPAL_OIDC_ENABLED=true\nWEHRPORTAL_HOST=portal.example.org\n")
         self.clients = []
         self.realm_exists = False
+        self.realm = {}
         self.calls = []
 
     def request(self, api, method, path, data=None, form=False):
@@ -39,6 +40,10 @@ class ProvisionTests(unittest.TestCase):
             raise urllib.error.HTTPError(path, 404, "not found", {}, None)
         if path == "/admin/realms" and method == "POST":
             self.realm_exists = True
+        if path == "/admin/realms/feuerwehr":
+            if method == "PUT":
+                self.realm.update(data)
+            return dict(self.realm)
         if "?clientId" in path:
             client_id = path.split("?clientId=")[1]
             return [c for c in self.clients if c.get("clientId", client_id) == client_id]
@@ -59,7 +64,37 @@ class ProvisionTests(unittest.TestCase):
         self.assertFalse(client["publicClient"])
         self.assertEqual(client["secret"], "test-only-drupal_oidc_client_secret")
         self.assertEqual(sum(m == "POST" and p.endswith("/clients") for m, p, _ in self.calls), 1)
-        self.assertEqual(sum(m == "PUT" for m, _, _ in self.calls), 1)
+        self.assertEqual(sum(m == "PUT" and "/clients/" in p for m, p, _ in self.calls), 1)
+        # Baseline hardening is applied exactly once; no mail settings without MAIL_HOST.
+        self.assertEqual(sum(m == "PUT" and p == "/admin/realms/feuerwehr" for m, p, _ in self.calls), 1)
+        self.assertTrue(self.realm["bruteForceProtected"])
+        self.assertEqual(self.realm["defaultLocale"], "de")
+        self.assertEqual(self.realm["passwordPolicy"], "length(12) and notUsername")
+        self.assertEqual(self.realm["attributes"]["feuerwehr-stack-hardened"], "true")
+        self.assertNotIn("smtpServer", self.realm)
+
+    def test_realm_admin_changes_and_late_mail_setup(self):
+        self.realm_exists = True
+        self.realm = {"passwordPolicy": "length(20)", "attributes": {"custom": "kept"}}
+        with patch.object(module.Keycloak, "request", autospec=True, side_effect=self.request):
+            module.provision(self.root)
+            self.assertEqual(self.realm["passwordPolicy"], "length(20)")
+            self.assertEqual(self.realm["attributes"]["custom"], "kept")
+            self.realm["bruteForceProtected"] = False
+            with (self.root / ".env").open("a") as env:
+                env.write("MAIL_HOST=smtp.example.org\nMAIL_PORT=465\nMAIL_ENCRYPTION=ssl\n"
+                          "MAIL_USERNAME=mailer\nMAIL_FROM_ADDRESS=noreply@example.org\n")
+            (self.root / "secrets" / "mail_smtp_password").write_text("test-only-mail\n")
+            module.provision(self.root)
+            module.provision(self.root)
+        self.assertFalse(self.realm["bruteForceProtected"])
+        smtp = self.realm["smtpServer"]
+        self.assertEqual((smtp["host"], smtp["port"], smtp["ssl"], smtp["starttls"]),
+                         ("smtp.example.org", "465", "true", "false"))
+        self.assertEqual((smtp["auth"], smtp["user"], smtp["password"]), ("true", "mailer", "test-only-mail"))
+        self.assertTrue(self.realm["verifyEmail"])
+        self.assertTrue(self.realm["resetPasswordAllowed"])
+        self.assertEqual(sum(m == "PUT" and p == "/admin/realms/feuerwehr" for m, p, _ in self.calls), 2)
 
     def test_application_selection(self):
         for apps in ((), ("wehrportal",), ("synapse",), ("drupal", "wehrportal", "synapse")):
@@ -91,7 +126,7 @@ class ProvisionTests(unittest.TestCase):
         with patch.object(module.Keycloak, "request", autospec=True, side_effect=self.request):
             with self.assertRaises(module.ProvisionError):
                 module.provision(self.root)
-        self.assertFalse(any(m == "PUT" for m, _, _ in self.calls))
+        self.assertFalse(any(m == "PUT" and "/clients/" in p for m, p, _ in self.calls))
 
     def test_readiness_failure_is_not_swallowed(self):
         error = urllib.error.HTTPError("url", 401, "unauthorized", {}, None)
