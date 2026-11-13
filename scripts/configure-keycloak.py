@@ -10,6 +10,9 @@ import urllib.request
 from pathlib import Path
 
 
+REALM_MARKER = "feuerwehr-stack-hardened"
+
+
 class ProvisionError(Exception):
     pass
 
@@ -87,14 +90,61 @@ def provision(root):
     api.token = auth["access_token"]
     realm_path = "/admin/realms/" + realm
     try:
-        api.request("GET", realm_path)
+        current = api.request("GET", realm_path) or {}
     except urllib.error.HTTPError as error:
         if error.code != 404:
             raise
         api.request("POST", "/admin/realms", {"realm": realm, "enabled": True, "registrationAllowed": False})
+        current = {}
+    configure_realm(api, realm_path, root, values, current)
     for app, host, callback in applications:
         configure_client(api, realm_path, root, values, app, host, callback)
     print("Keycloak realm and selected OIDC clients configured.")
+
+
+def smtp_settings(root, values):
+    """Map the stack's MAIL_* values to Keycloak's realm SMTP settings, or None if mail is unconfigured."""
+    host, sender = values.get("MAIL_HOST", ""), values.get("MAIL_FROM_ADDRESS", "")
+    if not host or not sender or values.get("MAIL_MAILER", "smtp") != "smtp":
+        return None
+    encryption = values.get("MAIL_ENCRYPTION", "tls").lower()
+    smtp = {
+        "host": host, "port": values.get("MAIL_PORT") or "587", "from": sender,
+        "fromDisplayName": values.get("MAIL_FROM_NAME") or "Feuerwehr",
+        "starttls": "true" if encryption == "tls" else "false",
+        "ssl": "true" if encryption == "ssl" else "false",
+        "auth": "false",
+    }
+    user = values.get("MAIL_USERNAME", "")
+    path = root / "secrets" / "mail_smtp_password"
+    password = path.read_text().strip() if path.is_file() and not path.is_symlink() else ""
+    if user and password:
+        smtp.update({"auth": "true", "user": user, "password": password})
+    return smtp
+
+
+def configure_realm(api, realm_path, root, values, current):
+    """Apply baseline hardening once per realm; later changes by a realm admin are kept."""
+    update = {}
+    attributes = dict(current.get("attributes") or {})
+    if attributes.get(REALM_MARKER) != "true":
+        update.update({
+            "bruteForceProtected": True,
+            "internationalizationEnabled": True,
+            "supportedLocales": sorted(set(current.get("supportedLocales") or []) | {"de", "en"}),
+            "defaultLocale": "de",
+        })
+        if not current.get("passwordPolicy"):
+            update["passwordPolicy"] = "length(12) and notUsername"
+        attributes[REALM_MARKER] = "true"
+        update["attributes"] = attributes
+    # Mail may be configured after the first run, so it is checked on every run but never overwritten.
+    if not (current.get("smtpServer") or {}).get("host"):
+        smtp = smtp_settings(root, values)
+        if smtp:
+            update.update({"smtpServer": smtp, "resetPasswordAllowed": True, "verifyEmail": True})
+    if update:
+        api.request("PUT", realm_path, update)
 
 
 def configure_client(api, realm_path, root, values, app, host, callback):

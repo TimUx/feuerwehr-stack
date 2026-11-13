@@ -25,8 +25,8 @@ Alle Anwendungsdaten und Secrets liegen als Host-Bind-Mounts unter `${STACK_ROOT
 
 | Profil | Dienst(e) | Datenbank/Abhängigkeit |
 | --- | --- | --- |
-| `data` | PostgreSQL 16.6 | Gemeinsamer persistenter Cluster |
-| `keycloak` | Keycloak 26.1.4 | Datenbank `keycloak`, Rolle `keycloak` |
+| `data` | PostgreSQL (`POSTGRES_IMAGE`, Standard `latest`) | Gemeinsamer persistenter Cluster |
+| `keycloak` | Keycloak (`latest`) | Datenbank `keycloak`, Rolle `keycloak` |
 | `wehrportal` | WehrPortal Web, Queue-Worker, Redis | DB `wehrportal`, Rolle `wehrportal`; Cache/Queue in Redis |
 | `matrix` | Synapse, FluffyChat Web | DB `synapse`, Rolle `synapse` |
 | `onlyoffice` | ONLYOFFICE Docs Community | Eingebettete Community-Komponenten |
@@ -36,6 +36,8 @@ Alle Anwendungsdaten und Secrets liegen als Host-Bind-Mounts unter `${STACK_ROOT
 Der Installer erzeugt `COMPOSE_PROFILES` anhand der Auswahl. Der idempotente PostgreSQL-Initializer erzeugt getrennte App-Datenbanken/Rollen. Bei aktiviertem Drupal wird er durch `scripts/setup-drupal.sh` auch für vorhandene Cluster ausgeführt, damit die neue Drupal-Datenbank und `pg_trgm` verfügbar sind; vorhandene Rollenpasswörter bleiben unverändert. Redis enthält nur Cache-/Queue-Zustand.
 
 ## Identität und Anwendung
+
+`scripts/setup-apps.sh` versieht den Realm einmalig mit einer Grundhärtung: Brute-Force-Schutz, Passwortrichtlinie (mindestens 12 Zeichen, nicht der Benutzername) und deutsche Oberfläche. Sind `MAIL_HOST` und `MAIL_FROM_ADDRESS` gesetzt und im Realm noch kein Mailserver hinterlegt, übernimmt das Setup die SMTP-Werte des Stacks und aktiviert „Passwort vergessen“ sowie die E-Mail-Bestätigung beim ersten Login. Der Realm wird danach als gehärtet markiert; spätere Änderungen in der Keycloak-Verwaltung bleiben bei erneutem Setup erhalten.
 
 Bei gemeinsam aktiviertem Drupal und Keycloak richtet der Installer automatisch den gewählten Realm, einen confidential OIDC-Client und Drupals generischen OIDC-Provider ein. Der Callback lautet `/openid-connect/generic`. Die Nutzerzuordnung erfolgt über die externe `sub`-Kennung; gleiche E-Mail-Adressen verknüpfen keine bestehenden Konten. Neue SSO-Nutzer erhalten keine privilegierten Rollen. Ein lokaler Drupal-Notfallzugang bleibt erhalten.
 

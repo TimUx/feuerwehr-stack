@@ -64,6 +64,8 @@ class SynapseConfigTests(unittest.TestCase):
         self.assertTrue(provider["enable_registration"])
         self.assertEqual(provider["pkce_method"], "always")
         self.assertEqual(provider["user_mapping_provider"]["config"]["subject_claim"], "sub")
+        self.assertEqual(provider["user_mapping_provider"]["config"]["localpart_template"],
+                         "{{ user.preferred_username.split('@')[0] }}")
         self.assertFalse(data["enable_registration"])
         self.assertNotIn("allow_registration", data)
         self.assertEqual(data["public_baseurl"], "https://matrix.example.org/")
