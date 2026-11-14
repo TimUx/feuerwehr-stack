@@ -1,0 +1,23 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  repository-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show tool versions
+        run: |
+          docker compose version
+          shellcheck --version
+          python3 --version
+      - name: Run repository tests
+        run: tests/run.sh

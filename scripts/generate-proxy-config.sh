@@ -85,6 +85,7 @@ EOF
       headers:
         customRequestHeaders:
           X-Forwarded-Proto: https
+        stsSeconds: 31536000
   serversTransports:
     feuerwehr-timeouts:
       forwardingTimeouts:
@@ -121,6 +122,7 @@ fi
       traefik.http.routers.fwstack-${service}.tls.certresolver: ${resolver}
       traefik.http.routers.fwstack-${service}.middlewares: "${chain}"
       traefik.http.middlewares.fwstack-${service}-headers.headers.customrequestheaders.X-Forwarded-Proto: https
+      traefik.http.middlewares.fwstack-${service}-headers.headers.stsSeconds: "31536000"
       traefik.http.routers.fwstack-${service}.service: "fwstack-${service}"
       traefik.http.services.fwstack-${service}.loadbalancer.server.port: "${port}"
 EOF

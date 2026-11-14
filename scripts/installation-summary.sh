@@ -96,5 +96,6 @@ installation_summary() {
   printf '  sudo ./scripts/healthcheck.sh           # Dienstestatus pruefen\n'
   printf '  sudo ./scripts/setup-apps.sh            # Einrichtung nach Fehlerkorrektur wiederholen\n'
   printf '  sudo ./scripts/backup.sh                # Erstes Backup nach erfolgreicher Einrichtung\n'
+  printf '  sudo ./scripts/backup-timer.sh enable   # Taegliches Backup mit Rotation einrichten\n'
   printf '\nDiese Uebersicht: %s/installation-info.txt (enthaelt keine Kennwoerter).\n' "$INSTALL_PATH"
 }

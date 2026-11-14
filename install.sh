@@ -93,6 +93,7 @@ read_config() {
 if [[ "$PATH_EXPLICIT" != true ]]; then
   INSTALL_PATH=${supplied[INSTALL_PATH]:-$DEFAULT_PATH}
   if [[ -z "${supplied[INSTALL_PATH]:-}" && ! -f "$INSTALL_PATH/.env" ]] && command -v docker >/dev/null 2>&1; then
+    # shellcheck disable=SC2046  # at most one container ID; no ID must expand to no argument
     detected=$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' \
       $(docker ps -aq --filter label=com.docker.compose.project=feuerwehr 2>/dev/null | head -n1) 2>/dev/null | head -n1 || true)
     if [[ "$detected" == /* && -f "$detected/.env" ]]; then
@@ -332,9 +333,9 @@ values[VPN_BACKEND_IP]=${values[VPN_BACKEND_IP]:-}
 prompt_for_app keycloak KEYCLOAK_ADMIN_USER "Initialer Keycloak-Administrator" kcadmin
 prompt_for_app wehrportal WEHRPORTAL_ADMIN_EMAILS "Initiale WehrPortal-Administrator-E-Mail(s), kommagetrennt" ""
 prompt_for_app wehrportal WEHRPORTAL_IMAGE_TAG "WehrPortal Image-Tag" latest
-prompt POSTGRES_IMAGE "PostgreSQL Image" postgres:latest
+prompt POSTGRES_IMAGE "PostgreSQL Image" postgres:18
 values[WEHRPORTAL_IMAGE_TAG]=${values[WEHRPORTAL_IMAGE_TAG]:-latest}
-values[POSTGRES_IMAGE]=${values[POSTGRES_IMAGE]:-postgres:latest}
+values[POSTGRES_IMAGE]=${values[POSTGRES_IMAGE]:-postgres:18}
 if [[ -n "${enabled[wehrportal]:-}" ]]; then
   info "WehrPortal versendet Anmeldelinks per E-Mail. Halten Sie die SMTP-Daten Ihres Mailanbieters bereit."
 fi
@@ -767,7 +768,7 @@ done
 install -d -m 0750 "$INSTALL_PATH/scripts"
 for file in compose.yml scripts/postgres-init.sh scripts/keycloak-entrypoint.sh scripts/wehrportal-entrypoint.sh \
   scripts/onlyoffice-entrypoint.sh scripts/generate-proxy-config.sh scripts/configure-synapse.py \
-  scripts/backup.sh scripts/restore.sh scripts/update.sh scripts/migrate-postgres.sh scripts/healthcheck.sh scripts/validate.sh \
+  scripts/backup.sh scripts/backup-timer.sh scripts/restore.sh scripts/update.sh scripts/migrate-postgres.sh scripts/healthcheck.sh scripts/validate.sh \
   scripts/uninstall.sh scripts/lib.sh scripts/generate-swarm-stack.py scripts/setup-drupal.sh scripts/configure-keycloak.py \
   scripts/setup-apps.sh scripts/setup-wehrportal.sh scripts/configure-wehrportal-oidc.php \
   scripts/synapse-entrypoint.sh scripts/setup-synapse.sh \

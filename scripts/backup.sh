@@ -3,6 +3,9 @@ set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 [[ -f "$ROOT/.env" ]] || { echo "Missing $ROOT/.env." >&2; exit 1; }
+# Number of archives to keep; unset or 0 keeps everything (the backup timer sets a value).
+keep=${BACKUP_KEEP:-0}
+[[ "$keep" =~ ^[0-9]{1,4}$ ]] || { echo "BACKUP_KEEP must be a number." >&2; exit 2; }
 mkdir -p "$ROOT/backups"
 chmod 0700 "$ROOT/backups"
 # shellcheck source=scripts/lib.sh
@@ -91,3 +94,24 @@ archive="$ROOT/backups/feuerwehr-$stamp.tar.gz"
 tar -C "$staging" -czf "$archive" .
 chmod 0600 "$archive"
 echo "Backup created: $archive"
+if ((10#$keep > 0)); then
+  # Only archives recorded here, i.e. created by a run with rotation enabled, are ever pruned.
+  # A matching file name alone proves nothing: manual, pre-update and imported archives stay.
+  rotation="$ROOT/backups/.rotation"
+  [[ ! -L "$rotation" ]] || { echo "Refusing to use a symlinked rotation list." >&2; exit 1; }
+  printf '%s\n' "feuerwehr-$stamp.tar.gz" >> "$rotation"
+  chmod 0600 "$rotation"
+  # Timestamped names sort chronologically; the strict pattern keeps paths out of the list.
+  mapfile -t archives < <(grep -xE 'feuerwehr-[0-9]{8}T[0-9]{6}Z\.tar\.gz' "$rotation" | sort -ru)
+  rotated=()
+  for old_archive in "${archives[@]}"; do
+    [[ -f "$ROOT/backups/$old_archive" ]] || continue
+    if ((${#rotated[@]} < 10#$keep)); then
+      rotated+=("$old_archive")
+      continue
+    fi
+    rm -f -- "${ROOT:?}/backups/${old_archive:?}"
+    echo "Removed old backup: $old_archive"
+  done
+  printf '%s\n' "${rotated[@]}" > "$rotation"
+fi

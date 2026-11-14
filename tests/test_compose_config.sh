@@ -89,22 +89,26 @@ assert any(s["source"] == "onlyoffice_jwt_secret" for s in portal["secrets"])
 assert any(v["target"] == "/stack/configure-wehrportal-office.php" for v in portal["volumes"])
 assert not any(s["source"] == "onlyoffice_jwt_secret"
                for s in configuration["services"]["wehrportal-worker"]["secrets"])
-assert configuration["services"]["postgres"]["image"] == "postgres:latest"
-assert configuration["services"]["redis"]["image"] == "redis:latest"
-assert configuration["services"]["keycloak"]["image"] == "quay.io/keycloak/keycloak:latest"
-assert configuration["services"]["synapse"]["image"] == "matrixdotorg/synapse:latest"
+for name, service in configuration["services"].items():
+    assert service["logging"] == {"driver": "json-file", "options": {"max-size": "10m", "max-file": "5"}}, name
+assert configuration["services"]["postgres"]["image"] == "postgres:18"
+import re
+pinned = {"redis": "redis", "keycloak": "quay.io/keycloak/keycloak", "synapse": "matrixdotorg/synapse",
+          "fluffychat": "ghcr.io/etkecc/fluffychat-web", "onlyoffice": "onlyoffice/documentserver",
+          "traefik": "traefik"}
+for name, repository in pinned.items():
+    image = configuration["services"][name]["image"]
+    assert re.fullmatch(re.escape(repository) + r":v?\d+\.\d+\.\d+(\.\d+)?", image), image
+assert configuration["services"]["onlyoffice"]["healthcheck"]["test"][0] == "CMD-SHELL"
 assert configuration["services"]["synapse"]["environment"]["MATRIX_OIDC_ENABLED"] == "true"
 assert configuration["services"]["synapse"]["entrypoint"] == ["/bin/sh", "/stack/synapse-entrypoint.sh"]
 assert any(s["source"] == "synapse_oidc_client_secret" for s in configuration["services"]["synapse"]["secrets"])
-assert configuration["services"]["fluffychat"]["image"] == "ghcr.io/etkecc/fluffychat-web:latest"
-assert configuration["services"]["onlyoffice"]["image"] == "onlyoffice/documentserver:latest"
 drupal = configuration["services"]["drupal"]
 assert drupal["image"] == "feuerwehr/drupal:11.4.11-1"
 assert drupal["build"]["context"].endswith("/drupal")
 assert "backend" in drupal["networks"]
 assert configuration["services"]["postgres"]["environment"]["DRUPAL_DB_PASSWORD_FILE"] == \
     "/run/secrets/drupal_db_password"
-assert configuration["services"]["traefik"]["image"] == "traefik:latest"
 assert configuration["services"]["postgres"]["environment"]["WEHRPORTAL_DB_PASSWORD_FILE"] == \
     "/run/secrets/wehrportal_db_password"
 assert configuration["services"]["postgres"]["environment"]["PGDATA"] == "/var/lib/postgresql/data"

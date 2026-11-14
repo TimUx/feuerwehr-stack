@@ -4,12 +4,21 @@ set -Eeuo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 ASSUME_YES=false
 LOCAL_FILES=false
-for option in "$@"; do
-  case "$option" in
+UPDATE_REF=
+release_ref=false
+usage() {
+  echo "Usage: $0 [--yes] [--local-files] [--ref TAG_OR_BRANCH]" >&2
+  exit 2
+}
+original_args=("$@")
+while (($#)); do
+  case "$1" in
     --yes) ASSUME_YES=true ;;
     --local-files) LOCAL_FILES=true ;;
-    *) echo "Usage: $0 [--yes] [--local-files]" >&2; exit 2 ;;
+    --ref) (($# >= 2)) || usage; UPDATE_REF=$2; shift ;;
+    *) usage ;;
   esac
+  shift
 done
 [[ -f "$ROOT/.env" ]] || { echo "Missing $ROOT/.env." >&2; exit 1; }
 [[ ! -L "$ROOT/scripts" && ! -L "$ROOT/compose.yml" ]] ||
@@ -21,9 +30,59 @@ if ! command -v curl >/dev/null 2>&1; then
   exit 1
 fi
 
-repo_raw_url=https://raw.githubusercontent.com/TimUx/feuerwehr-stack/main
+repository=TimUx/feuerwehr-stack
 update_tmp=$(mktemp -d "$ROOT/.update-scripts.XXXXXX")
-trap 'rm -rf -- "$update_tmp"' EXIT
+trap 'rm -rf -- "${update_tmp:?}"' EXIT
+if [[ -z "$UPDATE_REF" ]]; then
+  # Follow published releases, not the development branch: only a deliberately released
+  # state of the stack reaches an installation.
+  status=$(curl --silent --show-error --location --retry 2 --connect-timeout 10 --max-time 30 \
+    --output "$update_tmp/release.json" --write-out '%{http_code}' \
+    "https://api.github.com/repos/$repository/releases/latest")
+  case "$status" in
+    200)
+      UPDATE_REF=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["tag_name"])' \
+        "$update_tmp/release.json") ||
+        { echo "Could not read the latest release of $repository." >&2; exit 1; }
+      release_ref=true
+      ;;
+    404)
+      echo "WARN: $repository has no published release yet; updating from the main branch." >&2
+      UPDATE_REF=main
+      ;;
+    *)
+      echo "Could not determine the latest release of $repository (HTTP $status)." >&2
+      echo "Retry later or choose a version explicitly with --ref <tag>." >&2
+      exit 1
+      ;;
+  esac
+fi
+[[ "$UPDATE_REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$ && "$UPDATE_REF" != *..* ]] ||
+  { echo "Invalid update reference: $UPDATE_REF" >&2; exit 1; }
+installed_ref=$(cat "$ROOT/.stack-version" 2>/dev/null || true)
+echo "Stack files: installed ${installed_ref:-unknown}, updating to $UPDATE_REF."
+repo_raw_url=https://raw.githubusercontent.com/$repository/$UPDATE_REF
+# The release workflow publishes SHA256SUMS once, when a release is created. Unlike the tag it does
+# not follow later changes, so a moved tag or an altered download is noticed here.
+checksums=
+status=$(curl --silent --show-error --location --retry 2 --connect-timeout 10 --max-time 30 \
+  --output "$update_tmp/SHA256SUMS" --write-out '%{http_code}' \
+  "https://github.com/$repository/releases/download/$UPDATE_REF/SHA256SUMS")
+case "$status" in
+  200) checksums=$update_tmp/SHA256SUMS ;;
+  404)
+    if [[ "$release_ref" == true ]]; then
+      echo "Release $UPDATE_REF has no SHA256SUMS file (yet); refusing to install unverified files." >&2
+      echo "Retry in a few minutes or choose a version explicitly with --ref <tag>." >&2
+      exit 1
+    fi
+    echo "WARN: no published checksums for $UPDATE_REF; the downloaded files are not verified." >&2
+    ;;
+  *)
+    echo "Could not download the checksums of $UPDATE_REF (HTTP $status)." >&2
+    exit 1
+    ;;
+esac
 managed_files=(
   compose.yml
   scripts/postgres-init.sh
@@ -38,6 +97,7 @@ managed_files=(
   scripts/configure-wehrportal-office.php
   scripts/installation-summary.sh
   scripts/backup.sh
+  scripts/backup-timer.sh
   scripts/restore.sh
   scripts/migrate-postgres.sh
   scripts/healthcheck.sh
@@ -66,11 +126,18 @@ for file in "${managed_files[@]}"; do
   curl --fail --location --silent --show-error --retry 2 --connect-timeout 10 --max-time 120 \
     --output "$staged_file" "$repo_raw_url/$file"
   [[ -s "$staged_file" ]] || { echo "Downloaded an empty file for $file." >&2; exit 1; }
+  if [[ -n "$checksums" ]]; then
+    expected_sum=$(awk -v file="$file" '$2 == file { print $1; exit }' "$checksums")
+    actual_sum=$(sha256sum "$staged_file")
+    [[ "$expected_sum" =~ ^[0-9a-f]{64}$ && "${actual_sum%% *}" == "$expected_sum" ]] ||
+      { echo "Checksum mismatch for $file in $UPDATE_REF; nothing was installed." >&2; exit 1; }
+  fi
   case "$file" in
     *.sh) bash -n "$staged_file" ;;
     *.py) python3 -c 'import pathlib, sys; compile(pathlib.Path(sys.argv[1]).read_text(), sys.argv[1], "exec")' "$staged_file" ;;
   esac
 done
+[[ -z "$checksums" ]] || echo "Verified ${#managed_files[@]} files against the published checksums of $UPDATE_REF."
 
 for file in "${managed_files[@]}"; do
   staged_file="$update_tmp/$file"
@@ -88,10 +155,11 @@ done
 
 if [[ "$update_script_changed" == true ]]; then
   echo "The update script was updated; restarting it before continuing."
-  rm -rf -- "$update_tmp"
+  rm -rf -- "${update_tmp:?}"
   trap - EXIT
-  exec bash "$ROOT/scripts/update.sh" "$@"
+  exec bash "$ROOT/scripts/update.sh" "${original_args[@]}"
 fi
+printf '%s\n' "$UPDATE_REF" > "$ROOT/.stack-version"
 fi
 
 for name in drupal_db_password drupal_hash_salt drupal_admin_password drupal_oidc_client_secret wehrportal_oidc_client_secret synapse_oidc_client_secret; do
@@ -104,6 +172,17 @@ for name in drupal_db_password drupal_hash_salt drupal_admin_password drupal_oid
   fi
   [[ -f "$path" && -s "$path" ]] || { echo "Missing or empty application secret: $name" >&2; exit 1; }
 done
+
+# A floating PostgreSQL tag would start a major-version migration whenever upstream releases one.
+# Pin it to the major version of the existing cluster; upgrades then need an explicit .env change.
+if [[ -f "$ROOT/postgres/data/PG_VERSION" ]] && grep -qx 'POSTGRES_IMAGE=postgres:latest' "$ROOT/.env"; then
+  [[ ! -L "$ROOT/.env" ]] || { echo "Refusing to edit a symlinked .env." >&2; exit 1; }
+  installed_major=$(<"$ROOT/postgres/data/PG_VERSION")
+  [[ "$installed_major" =~ ^[0-9]+$ ]] ||
+    { echo "Invalid PostgreSQL PG_VERSION file; refusing to update." >&2; exit 1; }
+  sed -i "s/^POSTGRES_IMAGE=postgres:latest\$/POSTGRES_IMAGE=postgres:$installed_major/" "$ROOT/.env"
+  echo "Pinned POSTGRES_IMAGE in .env to postgres:$installed_major (was postgres:latest)."
+fi
 
 echo "Configured image tags:"
 grep -E '^[[:space:]]+image:' "$ROOT/compose.yml" || true

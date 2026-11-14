@@ -9,7 +9,10 @@
 - `.env`, Secret-Dateien und ACME-Datei erhalten restriktive Host-Dateirechte.
 - Nicht leere Installationspfade ohne Stack-Marker werden abgelehnt.
 - Container haben Restart-Policies und Healthchecks, soweit das jeweilige Image bzw. der Dienst sie unterstützt.
-- Drupal-Basisimage ist per Version und Digest fixiert; seine PHP-Abhängigkeiten sind gelockt. Andere Dienste verwenden teils bewegliche `latest`-Tags.
+- Drupal-Basisimage ist per Version und Digest fixiert; seine PHP-Abhängigkeiten sind gelockt. Die übrigen Dienste sind in `compose.yml` auf feste Versionen gesetzt; PostgreSQL ist auf eine Hauptversion festgelegt (`POSTGRES_IMAGE`, Standard `postgres:18`), nur WehrPortal folgt standardmäßig `latest`.
+- `scripts/update.sh` prüft die Dateien eines Releases gegen dessen einmalig veröffentlichte `SHA256SUMS` und bricht bei Abweichungen ab. Das erkennt ein nachträglich verschobenes Tag und veränderte Downloads, schützt aber nicht vor jemandem mit Schreibrechten auf die Release-Dateien des Repositories.
+- Alle erzeugten Proxy-Routen setzen HSTS (`max-age` ein Jahr, ohne Subdomains).
+- Containerlogs sind je Dienst auf 5 Dateien zu je 10 MB begrenzt (`json-file`), damit sie die Platte nicht füllen.
 - Kein `privileged`, keine Docker-API-Veröffentlichung; Backend-Netzwerk ist als Compose-intern definiert.
 
 ## Grenzen und Betriebsmaßnahmen
