@@ -25,8 +25,8 @@ Alle Anwendungsdaten und Secrets liegen als Host-Bind-Mounts unter `${STACK_ROOT
 
 | Profil | Dienst(e) | Datenbank/Abhängigkeit |
 | --- | --- | --- |
-| `data` | PostgreSQL (`POSTGRES_IMAGE`, Standard `latest`) | Gemeinsamer persistenter Cluster |
-| `keycloak` | Keycloak (`latest`) | Datenbank `keycloak`, Rolle `keycloak` |
+| `data` | PostgreSQL (`POSTGRES_IMAGE`, Standard `postgres:18`) | Gemeinsamer persistenter Cluster |
+| `keycloak` | Keycloak (feste Version in `compose.yml`) | Datenbank `keycloak`, Rolle `keycloak` |
 | `wehrportal` | WehrPortal Web, Queue-Worker, Redis | DB `wehrportal`, Rolle `wehrportal`; Cache/Queue in Redis |
 | `matrix` | Synapse, FluffyChat Web | DB `synapse`, Rolle `synapse` |
 | `onlyoffice` | ONLYOFFICE Docs Community | Eingebettete Community-Komponenten |

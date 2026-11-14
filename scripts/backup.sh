@@ -3,6 +3,9 @@ set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 [[ -f "$ROOT/.env" ]] || { echo "Missing $ROOT/.env." >&2; exit 1; }
+# Number of archives to keep; unset or 0 keeps everything (the backup timer sets a value).
+keep=${BACKUP_KEEP:-0}
+[[ "$keep" =~ ^[0-9]{1,4}$ ]] || { echo "BACKUP_KEEP must be a number." >&2; exit 2; }
 mkdir -p "$ROOT/backups"
 chmod 0700 "$ROOT/backups"
 # shellcheck source=scripts/lib.sh
@@ -91,3 +94,12 @@ archive="$ROOT/backups/feuerwehr-$stamp.tar.gz"
 tar -C "$staging" -czf "$archive" .
 chmod 0600 "$archive"
 echo "Backup created: $archive"
+if ((10#$keep > 0)); then
+  # Timestamped names sort chronologically; only this script's own archives are pruned.
+  mapfile -t archives < <(find "$ROOT/backups" -maxdepth 1 -type f \
+    -name 'feuerwehr-[0-9]*T[0-9]*Z.tar.gz' -printf '%f\n' | sort -r)
+  for old_archive in "${archives[@]:10#$keep}"; do
+    rm -f -- "${ROOT:?}/backups/${old_archive:?}"
+    echo "Removed old backup: $old_archive"
+  done
+fi

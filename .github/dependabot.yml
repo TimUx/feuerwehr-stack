@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # Pinned service images in compose.yml
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # A PostgreSQL major upgrade needs a cluster migration and stays a deliberate decision.
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
+  # Drupal base image
+  - package-ecosystem: docker
+    directory: /drupal
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

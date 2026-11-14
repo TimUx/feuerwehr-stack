@@ -1,10 +1,18 @@
 name: feuerwehr
 
+# Docker's default json-file driver keeps logs forever; cap them per container.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   postgres:
-    image: ${POSTGRES_IMAGE:-postgres:latest}
+    image: ${POSTGRES_IMAGE:-postgres:18}
     profiles: [data]
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: ${MEM_POSTGRES:-1g}
     cpus: ${CPU_POSTGRES:-1.00}
     environment:
@@ -36,9 +44,10 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   redis:
-    image: redis:latest
+    image: redis:8.10.3
     profiles: [wehrportal]
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: ${MEM_REDIS:-256m}
     cpus: ${CPU_REDIS:-0.50}
     command: ["redis-server", "--save", "", "--appendonly", "no"]
@@ -51,9 +60,10 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   keycloak:
-    image: quay.io/keycloak/keycloak:latest
+    image: quay.io/keycloak/keycloak:26.8.2
     profiles: [keycloak]
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: ${MEM_KEYCLOAK:-1g}
     cpus: ${CPU_KEYCLOAK:-1.00}
     entrypoint: ["/bin/sh", "/stack/keycloak-entrypoint.sh"]
@@ -92,6 +102,7 @@ services:
     image: ghcr.io/timux/wehrportal:${WEHRPORTAL_IMAGE_TAG:-UNCONFIGURED}
     profiles: [wehrportal]
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: ${MEM_WEHRPORTAL:-768m}
     cpus: ${CPU_WEHRPORTAL:-1.00}
     environment:
@@ -160,6 +171,7 @@ services:
     image: ghcr.io/timux/wehrportal:${WEHRPORTAL_IMAGE_TAG:-UNCONFIGURED}
     profiles: [wehrportal]
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: ${MEM_WEHRPORTAL_WORKER:-384m}
     cpus: ${CPU_WEHRPORTAL_WORKER:-0.50}
     environment:
@@ -217,9 +229,10 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   synapse:
-    image: matrixdotorg/synapse:latest
+    image: matrixdotorg/synapse:v1.165.0
     profiles: [matrix]
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: ${MEM_SYNAPSE:-1g}
     cpus: ${CPU_SYNAPSE:-1.00}
     environment:
@@ -254,9 +267,10 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   fluffychat:
-    image: ghcr.io/etkecc/fluffychat-web:latest
+    image: ghcr.io/etkecc/fluffychat-web:v2.11.5
     profiles: [matrix]
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: ${MEM_FLUFFYCHAT:-128m}
     cpus: ${CPU_FLUFFYCHAT:-0.25}
     volumes:
@@ -271,9 +285,10 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   onlyoffice:
-    image: onlyoffice/documentserver:latest
+    image: onlyoffice/documentserver:10.0.0
     profiles: [onlyoffice]
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: ${MEM_ONLYOFFICE:-3g}
     cpus: ${CPU_ONLYOFFICE:-2.00}
     entrypoint: ["/bin/bash", "/stack/onlyoffice-entrypoint.sh"]
@@ -288,6 +303,12 @@ services:
       - ${STACK_ROOT}/onlyoffice/lib:/var/lib/onlyoffice
     expose: ["80"]
     networks: [backend, frontend]
+    healthcheck:
+      test: ["CMD-SHELL", "[ \"$$(curl -fs http://127.0.0.1/healthcheck)\" = true ]"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
     security_opt: ["no-new-privileges:true"]
 
   drupal:
@@ -297,6 +318,7 @@ services:
     pull_policy: build
     profiles: [drupal]
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: ${MEM_DRUPAL:-768m}
     cpus: ${CPU_DRUPAL:-0.50}
     environment:
@@ -328,9 +350,10 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   traefik:
-    image: traefik:latest
+    image: traefik:v3.7.19
     profiles: [proxy]
     restart: unless-stopped
+    logging: *default-logging
     mem_limit: ${MEM_TRAEFIK:-256m}
     cpus: ${CPU_TRAEFIK:-0.50}
     command:

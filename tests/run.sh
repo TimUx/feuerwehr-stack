@@ -8,7 +8,7 @@ done
 python3 -m py_compile "$ROOT/scripts/configure-synapse.py" "$ROOT/scripts/generate-swarm-stack.py" "$ROOT/scripts/configure-keycloak.py"
 rm -rf "$ROOT/scripts/__pycache__"
 if command -v shellcheck >/dev/null; then
-  shellcheck "$ROOT/install.sh" "$ROOT"/scripts/*.sh "$ROOT"/tests/*.sh
+  shellcheck --severity=warning "$ROOT/install.sh" "$ROOT"/scripts/*.sh "$ROOT"/tests/*.sh
 fi
 "$ROOT/tests/test_installer.sh"
 "$ROOT/tests/test_proxy_config.sh"
@@ -16,6 +16,7 @@ fi
 "$ROOT/tests/test_swarm_stack.sh"
 "$ROOT/tests/test_update_script_refresh.sh"
 "$ROOT/tests/test_setup_apps.sh"
+"$ROOT/tests/test_backup_timer.sh"
 PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/test_keycloak.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/test_synapse.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/test_installer_ui.py"

@@ -60,6 +60,7 @@ for name, service in services.items():
     assert deploy["restart_policy"]["condition"] == "any", name
     assert deploy["resources"]["limits"]["memory"], name
     assert deploy["resources"]["limits"]["cpus"], name
+    assert service["logging"]["options"] == {"max-size": "10m", "max-file": "5"}, name
     for volume in service.get("volumes", []):
         assert "create_host_path" not in volume.get("bind", {}), (name, volume)
 labels = services["keycloak"]["deploy"]["labels"]
