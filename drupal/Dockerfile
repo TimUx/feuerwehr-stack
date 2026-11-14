@@ -1,4 +1,4 @@
-FROM drupal:11.4.11-php8.4-apache-bookworm@sha256:beba52025aa01735674edee0d1415a7f4a7c85a11100727d324d9b182b1f83bb
+FROM drupal:11.4.12-php8.4-apache-bookworm@sha256:7e592e1f8ac25b5f5c38a1d7c41b9013c053ce486f32b6909a88314cb9ab73f7
 
 RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client \
     && rm -rf /var/lib/apt/lists
