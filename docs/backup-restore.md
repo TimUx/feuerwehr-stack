@@ -20,7 +20,7 @@ sudo /srv/apps/feuerwehr/scripts/backup-timer.sh status
 sudo /srv/apps/feuerwehr/scripts/backup-timer.sh disable
 ```
 
-`enable` legt einen systemd-Timer (`feuerwehr-backup.timer`) an, der `backup.sh` täglich zur angegebenen Uhrzeit startet; ein verpasster Lauf wird nach dem nächsten Hochfahren nachgeholt. `--keep` bestimmt, wie viele Archive erhalten bleiben (Standard 14, `0` behält alle). Gelöscht werden nur die vom Skript selbst erzeugten Archive `feuerwehr-<Zeitstempel>.tar.gz`; andere Dateien in `backups/` bleiben unberührt. Der Timer wird nicht automatisch vom Installer aktiviert.
+`enable` legt einen systemd-Timer (`feuerwehr-backup.timer`) an, der `backup.sh` täglich zur angegebenen Uhrzeit startet; ein verpasster Lauf wird nach dem nächsten Hochfahren nachgeholt. `--keep` bestimmt, wie viele Archive erhalten bleiben (Standard 14, `0` behält alle). Gelöscht werden nur Archive, die ein Lauf mit Rotation selbst erzeugt und in `backups/.rotation` vermerkt hat. Manuell erstellte, vor einem Update erzeugte oder von einem anderen Host kopierte Archive bleiben auch bei gleichem Namensschema erhalten und müssen bei Bedarf von Hand gelöscht werden. Der Timer wird nicht automatisch vom Installer aktiviert.
 
 Ohne Timer rotiert `backup.sh` nicht. Für manuelle Läufe lässt sich die Rotation mit `BACKUP_KEEP=<Anzahl>` einschalten; so behalten auch die Sicherungen vor einem Update alle vorhandenen Archive, solange die Variable nicht gesetzt ist.
 

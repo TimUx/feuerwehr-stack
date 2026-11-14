@@ -95,11 +95,23 @@ tar -C "$staging" -czf "$archive" .
 chmod 0600 "$archive"
 echo "Backup created: $archive"
 if ((10#$keep > 0)); then
-  # Timestamped names sort chronologically; only this script's own archives are pruned.
-  mapfile -t archives < <(find "$ROOT/backups" -maxdepth 1 -type f \
-    -name 'feuerwehr-[0-9]*T[0-9]*Z.tar.gz' -printf '%f\n' | sort -r)
-  for old_archive in "${archives[@]:10#$keep}"; do
+  # Only archives recorded here, i.e. created by a run with rotation enabled, are ever pruned.
+  # A matching file name alone proves nothing: manual, pre-update and imported archives stay.
+  rotation="$ROOT/backups/.rotation"
+  [[ ! -L "$rotation" ]] || { echo "Refusing to use a symlinked rotation list." >&2; exit 1; }
+  printf '%s\n' "feuerwehr-$stamp.tar.gz" >> "$rotation"
+  chmod 0600 "$rotation"
+  # Timestamped names sort chronologically; the strict pattern keeps paths out of the list.
+  mapfile -t archives < <(grep -xE 'feuerwehr-[0-9]{8}T[0-9]{6}Z\.tar\.gz' "$rotation" | sort -ru)
+  rotated=()
+  for old_archive in "${archives[@]}"; do
+    [[ -f "$ROOT/backups/$old_archive" ]] || continue
+    if ((${#rotated[@]} < 10#$keep)); then
+      rotated+=("$old_archive")
+      continue
+    fi
     rm -f -- "${ROOT:?}/backups/${old_archive:?}"
     echo "Removed old backup: $old_archive"
   done
+  printf '%s\n' "${rotated[@]}" > "$rotation"
 fi

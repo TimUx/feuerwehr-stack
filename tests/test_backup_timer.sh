@@ -52,20 +52,32 @@ done
 [[ ! -e "$units/feuerwehr-backup.service" && ! -e "$units/feuerwehr-backup.timer" ]]
 grep -qx 'disable --now feuerwehr-backup.timer' "$SYSTEMCTL_LOG"
 
-# Rotation: only this script's archives are pruned, and only when BACKUP_KEEP is set.
-for day in 01 02 03 04; do
+# Rotation: only archives created by a rotating run are pruned. Imported archives with the same
+# naming scheme, manual runs without BACKUP_KEEP and unrelated files are never deleted.
+for day in 01 02; do
   touch "$installation/backups/feuerwehr-202601${day}T030000Z.tar.gz"
 done
 touch "$installation/backups/manual-copy.tar.gz" "$installation/backups/feuerwehr-notes.tar.gz"
 "$installation/scripts/backup.sh" > /dev/null
+[[ ! -e "$installation/backups/.rotation" ]]
+for _ in 1 2 3 4; do
+  sleep 1
+  BACKUP_KEEP=2 "$installation/scripts/backup.sh" > "$tmp/output"
+done
+[[ $(grep -c '^Removed old backup: ' "$tmp/output") -eq 1 ]]
 [[ $(find "$installation/backups" -name 'feuerwehr-2*.tar.gz' | wc -l) -eq 5 ]]
-sleep 1
-BACKUP_KEEP=2 "$installation/scripts/backup.sh" > "$tmp/output"
-mapfile -t kept < <(find "$installation/backups" -name 'feuerwehr-2*.tar.gz' -printf '%f\n' | sort)
-[[ ${#kept[@]} -eq 2 && "${kept[0]}" != feuerwehr-202601* ]]
-[[ $(grep -c '^Removed old backup: ' "$tmp/output") -eq 4 ]]
+[[ -e "$installation/backups/feuerwehr-20260101T030000Z.tar.gz" &&
+   -e "$installation/backups/feuerwehr-20260102T030000Z.tar.gz" ]]
+mapfile -t kept < "$installation/backups/.rotation"
+[[ ${#kept[@]} -eq 2 && -f "$installation/backups/${kept[0]}" && -f "$installation/backups/${kept[1]}" ]]
 [[ -e "$installation/backups/manual-copy.tar.gz" && -e "$installation/backups/feuerwehr-notes.tar.gz" ]]
-tar -tzf "$installation/backups/${kept[1]}" | grep -qx './manifest.txt'
+tar -tzf "$installation/backups/${kept[0]}" | grep -qx './manifest.txt'
+# Entries that are not plain archive names of this script are ignored, never followed.
+touch "$tmp/outside.tar.gz"
+printf '%s\n' "../../outside.tar.gz" "$tmp/outside.tar.gz" >> "$installation/backups/.rotation"
+sleep 1
+BACKUP_KEEP=1 "$installation/scripts/backup.sh" > /dev/null
+[[ -e "$tmp/outside.tar.gz" && $(wc -l < "$installation/backups/.rotation") -eq 1 ]]
 if BACKUP_KEEP=all "$installation/scripts/backup.sh" > /dev/null 2>&1; then
   echo "Invalid BACKUP_KEEP was accepted." >&2
   exit 1
