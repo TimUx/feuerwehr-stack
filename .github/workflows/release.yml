@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # scripts/update.sh verifies every downloaded file against this list. It is uploaded once and
       # deliberately never overwritten: if the tag is moved later, the files no longer match.
       - name: Publish SHA256SUMS
